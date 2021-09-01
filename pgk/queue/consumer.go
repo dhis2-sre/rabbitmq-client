@@ -7,19 +7,19 @@ import (
 
 type Consumer interface {
 	Launch()
-	channel() string
-	consume(d amqp.Delivery)
+	Channel() string
+	Consume(d amqp.Delivery)
 }
 
 type AbstractConsumer struct {
 	Consumer
-	url string
+	Url string
 }
 
 func (a *AbstractConsumer) Launch() {
-	log.Printf("Launching Consumer for: %s", a.channel())
+	log.Printf("Launching Consumer for: %s", a.Channel())
 
-	conn, err := amqp.Dial(a.url)
+	conn, err := amqp.Dial(a.Url)
 	if err != nil {
 		log.Println(err)
 		return
@@ -46,7 +46,7 @@ func (a *AbstractConsumer) Launch() {
 	}(ch)
 
 	q, err := ch.QueueDeclare(
-		a.channel(),
+		a.Channel(),
 		false,
 		false,
 		false,
@@ -75,7 +75,7 @@ func (a *AbstractConsumer) Launch() {
 	forever := make(chan bool)
 	go func() {
 		for d := range msgs {
-			a.consume(d)
+			a.Consume(d)
 		}
 	}()
 	<-forever
