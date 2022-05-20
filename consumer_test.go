@@ -187,16 +187,18 @@ func (s *consumerSuite) TestReconnectConsumerConnection() {
 	require.NoError(proxy.Disable())
 
 	queue := "test_queue"
-	// there might be a delay in the consumer settings its status to
-	// reconnnecting. if the test is flaky this might be a reason => use
-	// Eventually
-	_, err = consumer.Consume(queue, func(d amqp.Delivery) {})
+	// account for a delay in the consumer settings its status to
+	// reconnnecting after the proxy dropped the connection.
+	require.Eventually(func() bool {
+		_, err = consumer.Consume(queue, func(d amqp.Delivery) {})
+		return err != nil
+	}, s.timeout, time.Second)
 	require.Error(err)
 	// consumer re-connecting is a temporary error
 	// retrying the same Consume() could succeed at some point
 	var temp temporary
 	assert.Error(err)
-	require.True(errors.As(err, &temp), "consumer re-connecting is a temporary error")
+	require.True(errors.As(err, &temp), "consumer re-connecting should be a temporary error")
 
 	require.NoError(proxy.Enable())
 
