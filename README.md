@@ -63,6 +63,20 @@ can play with :smirk:
 Note: the consumer will re-connect but not re-consume (see
 [Limitations](#limitations)).
 
+## Test
+
+Run all tests using
+
+```sh
+make test
+```
+
+Run an individual test using
+
+```sh
+go test -v -race -run TestSuiteConsumer . -testify.m TestReconnectConsumerConnection
+```
+
 ## Limitations
 
 * producer is not yet implement, but will be soon!
