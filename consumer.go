@@ -61,45 +61,13 @@ func WithReopenChannelWait(wait time.Duration) Option {
 	}
 }
 
-type status int
-
-func (s status) String() string {
-	switch s {
-	case disconnected:
-		return "disconnected"
-	case connecting:
-		return "connecting"
-	case connected:
-		return "connected"
-	case reconnecting:
-		return "reconnecting"
-	case closed:
-		return "closed"
-	}
-	return "unknown"
-}
-
-const (
-	disconnected = status(iota)
-	connecting
-	connected
-	reconnecting
-	closed
-)
-
 type Consumer struct {
 	mu sync.RWMutex
 
 	opts   *Options
 	logger *log.Logger
 
-	connector       *connector
-	conn            *amqp.Connection
-	channel         *amqp.Channel
-	done            chan struct{}
-	status          status
-	notifyConnClose chan *amqp.Error
-	notifyChanClose chan *amqp.Error
+	connector *connecter
 }
 
 // NewConsumer creates a Consumer that synchronously connects/opens a
@@ -120,7 +88,7 @@ func NewConsumer(URI string, options ...Option) (*Consumer, error) {
 		return nil, err
 	}
 
-	cn, err := newConnector(URI)
+	cn, err := newConnecter(URI)
 	if err != nil {
 		return nil, err
 	}
@@ -128,8 +96,6 @@ func NewConsumer(URI string, options ...Option) (*Consumer, error) {
 	return &Consumer{
 		opts:      opts,
 		logger:    log.New(os.Stdout, "", log.LstdFlags),
-		done:      make(chan struct{}),
-		status:    disconnected,
 		connector: cn,
 	}, nil
 }

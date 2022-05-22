@@ -10,15 +10,33 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// const (
-// 	disconnected = status(iota)
-// 	connecting
-// 	connected
-// 	reconnecting
-// 	closed
-// )
+type status int
 
-type connector struct {
+func (s status) String() string {
+	switch s {
+	case disconnected:
+		return "disconnected"
+	case connecting:
+		return "connecting"
+	case connected:
+		return "connected"
+	case reconnecting:
+		return "reconnecting"
+	case closed:
+		return "closed"
+	}
+	return "unknown"
+}
+
+const (
+	disconnected = status(iota)
+	connecting
+	connected
+	reconnecting
+	closed
+)
+
+type connecter struct {
 	mu sync.RWMutex
 
 	opts   *Options
@@ -37,7 +55,7 @@ type connector struct {
 // channel it will automatically re-connect and re-open connection and channel
 // if they fail. A consumer holds on to one connection and one channel.
 // A consumer can be used to consume multiple times and from multiple goroutines.
-func newConnector(URI string, options ...Option) (*connector, error) {
+func newConnecter(URI string, options ...Option) (*connecter, error) {
 	opts := &Options{
 		ReconnectWait:     DefaultReconnectWait,
 		ReopenChannelWait: DefaultReopenChannelWait,
@@ -50,14 +68,14 @@ func newConnector(URI string, options ...Option) (*connector, error) {
 		return nil, err
 	}
 
-	c := connector{
+	c := connecter{
 		opts:   opts,
 		logger: log.New(os.Stdout, "", log.LstdFlags),
 		done:   make(chan struct{}),
 		status: disconnected,
 	}
 
-	err = c.createConnection(URI)
+	err = c.connect(URI)
 	if err != nil {
 		return nil, err
 	}
@@ -71,8 +89,8 @@ func newConnector(URI string, options ...Option) (*connector, error) {
 	return &c, nil
 }
 
-// createConnection will create a new AMQP connection
-func (c *connector) createConnection(addr string) error {
+// connect will create a new AMQP connection
+func (c *connecter) connect(addr string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -95,7 +113,7 @@ func (c *connector) createConnection(addr string) error {
 }
 
 // createChannel will open channel. Assumes a connection is open.
-func (c *connector) createChannel() error {
+func (c *connecter) createChannel() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -121,7 +139,7 @@ func (c *connector) createChannel() error {
 // maintainConnection ensure the consumers AMQP connection and channel are both
 // open. re-connecting on notifyConnClose events,
 // re-opening a channel on notifyChanClose events
-func (c *connector) maintainConnection(addr string) {
+func (c *connecter) maintainConnection(addr string) {
 	select {
 	case <-c.done:
 		c.logger.Println("Stopping connection loop due to done closed")
@@ -130,7 +148,7 @@ func (c *connector) maintainConnection(addr string) {
 		c.logger.Println("Connection closed. Re-connecting...")
 
 		for {
-			err := c.createConnection(addr)
+			err := c.connect(addr)
 			if err != nil {
 				c.logger.Println("Failed to connect. Retrying...")
 				t := time.NewTimer(c.opts.ReconnectWait)
@@ -161,7 +179,7 @@ func (c *connector) maintainConnection(addr string) {
 }
 
 // openChannel opens a channel. Assumes a connection is open.
-func (c *connector) openChannel() {
+func (c *connecter) openChannel() {
 	for {
 		err := c.createChannel()
 		if err == nil {
@@ -184,7 +202,7 @@ func (c *connector) openChannel() {
 // Close connection and channel. A new consumer needs to be
 // created in order to consume again after closing it.
 // It is safe to call this method multiple times and in multiple goroutines.
-func (c *connector) close() error {
+func (c *connecter) close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
