@@ -45,7 +45,7 @@ type connecter struct {
 	conn            *amqp.Connection
 	channel         *amqp.Channel
 	done            chan struct{}
-	status          status
+	stat            status
 	notifyConnClose chan *amqp.Error
 	notifyChanClose chan *amqp.Error
 }
@@ -72,7 +72,7 @@ func newConnecter(URI string, options ...Option) (*connecter, error) {
 		opts:   opts,
 		logger: log.New(os.Stdout, "", log.LstdFlags),
 		done:   make(chan struct{}),
-		status: disconnected,
+		stat:   disconnected,
 	}
 
 	err = c.connect(URI)
@@ -94,10 +94,10 @@ func (c *connecter) connect(addr string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.status == connected || c.status == reconnecting {
-		c.status = reconnecting
+	if c.stat == connected || c.stat == reconnecting {
+		c.stat = reconnecting
 	} else {
-		c.status = connecting
+		c.stat = connecting
 	}
 
 	conn, err := amqp.Dial(addr)
@@ -117,10 +117,10 @@ func (c *connecter) createChannel() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.status == connected || c.status == reconnecting {
-		c.status = reconnecting
+	if c.stat == connected || c.stat == reconnecting {
+		c.stat = reconnecting
 	} else {
-		c.status = connecting
+		c.stat = connecting
 	}
 
 	ch, err := c.conn.Channel()
@@ -131,7 +131,7 @@ func (c *connecter) createChannel() error {
 
 	c.notifyChanClose = make(chan *amqp.Error, 1)
 	c.channel.NotifyClose(c.notifyChanClose)
-	c.status = connected
+	c.stat = connected
 
 	return nil
 }
@@ -199,6 +199,13 @@ func (c *connecter) openChannel() {
 	}
 }
 
+func (c *connecter) status() status {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.stat
+}
+
 // Close connection and channel. A new consumer needs to be
 // created in order to consume again after closing it.
 // It is safe to call this method multiple times and in multiple goroutines.
@@ -206,8 +213,8 @@ func (c *connecter) close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.status != closed {
-		c.status = closed
+	if c.stat != closed {
+		c.stat = closed
 		// stop re-connecting/re-opening a channel
 		close(c.done)
 	}

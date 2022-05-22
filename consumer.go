@@ -61,6 +61,7 @@ func WithReopenChannelWait(wait time.Duration) Option {
 	}
 }
 
+// TODO do I need a mutex, now that I have the connector
 type Consumer struct {
 	mu sync.RWMutex
 
@@ -130,8 +131,7 @@ func (te tempError) Temporary() bool {
 func (c *Consumer) Consume(queue string, receive func(d amqp.Delivery)) (string, error) {
 	c.mu.RLock()
 
-	if c.connector.status != connected {
-		status := c.connector.status
+	if status := c.connector.status(); status != connected {
 		c.mu.RUnlock()
 		if status == reconnecting {
 			return "", tempError{err: "temporarily failed to consume: re-connecting with broker"}
@@ -182,8 +182,7 @@ func (c *Consumer) Cancel(consumer string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.connector.status != connected {
-		status := c.connector.status
+	if status := c.connector.status(); status != connected {
 		if status == reconnecting {
 			return tempError{err: "temporarily failed to cancel: re-connecting with broker"}
 		}
