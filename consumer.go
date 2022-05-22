@@ -93,6 +93,7 @@ type Consumer struct {
 	opts   *Options
 	logger *log.Logger
 
+	connector       *connector
 	conn            *amqp.Connection
 	channel         *amqp.Channel
 	done            chan struct{}
@@ -119,25 +120,18 @@ func NewConsumer(URI string, options ...Option) (*Consumer, error) {
 		return nil, err
 	}
 
-	c := Consumer{
-		opts:   opts,
-		logger: log.New(os.Stdout, "", log.LstdFlags),
-		done:   make(chan struct{}),
-		status: disconnected,
-	}
-
-	err = c.createConnection(URI)
-	if err != nil {
-		return nil, err
-	}
-	err = c.createChannel()
+	cn, err := newConnector(URI)
 	if err != nil {
 		return nil, err
 	}
 
-	go c.maintainConnection(URI)
-
-	return &c, nil
+	return &Consumer{
+		opts:      opts,
+		logger:    log.New(os.Stdout, "", log.LstdFlags),
+		done:      make(chan struct{}),
+		status:    disconnected,
+		connector: cn,
+	}, nil
 }
 
 func validateOptions(opts *Options) error {
@@ -146,116 +140,6 @@ func validateOptions(opts *Options) error {
 	}
 
 	return nil
-}
-
-// createConnection will create a new AMQP connection
-func (c *Consumer) createConnection(addr string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.status == connected || c.status == reconnecting {
-		c.status = reconnecting
-	} else {
-		c.status = connecting
-	}
-
-	conn, err := amqp.Dial(addr)
-	if err != nil {
-		return err
-	}
-	c.conn = conn
-
-	c.notifyConnClose = make(chan *amqp.Error)
-	c.conn.NotifyClose(c.notifyConnClose)
-
-	return nil
-}
-
-// createChannel will open channel. Assumes a connection is open.
-func (c *Consumer) createChannel() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.status == connected || c.status == reconnecting {
-		c.status = reconnecting
-	} else {
-		c.status = connecting
-	}
-
-	ch, err := c.conn.Channel()
-	if err != nil {
-		return err
-	}
-	c.channel = ch
-
-	c.notifyChanClose = make(chan *amqp.Error, 1)
-	c.channel.NotifyClose(c.notifyChanClose)
-	c.status = connected
-
-	return nil
-}
-
-// maintainConnection ensure the consumers AMQP connection and channel are both
-// open. re-connecting on notifyConnClose events,
-// re-opening a channel on notifyChanClose events
-func (c *Consumer) maintainConnection(addr string) {
-	select {
-	case <-c.done:
-		c.logger.Println("Stopping connection loop due to done closed")
-		return
-	case <-c.notifyConnClose:
-		c.logger.Println("Connection closed. Re-connecting...")
-
-		for {
-			err := c.createConnection(addr)
-			if err != nil {
-				c.logger.Println("Failed to connect. Retrying...")
-				t := time.NewTimer(c.opts.ReconnectWait)
-				select {
-				case <-c.done:
-					if !t.Stop() {
-						<-t.C
-					}
-					c.logger.Println("Stopping connection loop due to done closed")
-					return
-				case <-t.C:
-				}
-				continue
-			}
-			c.logger.Println("Consumer connection re-established")
-
-			c.openChannel()
-			c.logger.Println("Consumer connection and channel re-established")
-			break
-		}
-	case <-c.notifyChanClose:
-		c.logger.Println("Channel closed. Re-opening new one...")
-		c.openChannel()
-		c.logger.Println("Consumer channel re-established")
-	}
-
-	c.maintainConnection(addr)
-}
-
-// openChannel opens a channel. Assumes a connection is open.
-func (c *Consumer) openChannel() {
-	for {
-		err := c.createChannel()
-		if err == nil {
-			return
-		}
-
-		c.logger.Println("Failed to open channel. Retrying...")
-		t := time.NewTimer(c.opts.ReopenChannelWait)
-		select {
-		case <-c.done:
-			if !t.Stop() {
-				<-t.C
-			}
-			return
-		case <-t.C:
-		}
-	}
 }
 
 type tempError struct {
@@ -280,8 +164,8 @@ func (te tempError) Temporary() bool {
 func (c *Consumer) Consume(queue string, receive func(d amqp.Delivery)) (string, error) {
 	c.mu.RLock()
 
-	if c.status != connected {
-		status := c.status
+	if c.connector.status != connected {
+		status := c.connector.status
 		c.mu.RUnlock()
 		if status == reconnecting {
 			return "", tempError{err: "temporarily failed to consume: re-connecting with broker"}
@@ -289,7 +173,7 @@ func (c *Consumer) Consume(queue string, receive func(d amqp.Delivery)) (string,
 		return "", fmt.Errorf("failed to consume: connection is in %q state", status)
 	}
 
-	_, err := c.channel.QueueDeclare(
+	_, err := c.connector.channel.QueueDeclare(
 		queue,
 		false, // Durable
 		false, // Delete when unused
@@ -302,7 +186,7 @@ func (c *Consumer) Consume(queue string, receive func(d amqp.Delivery)) (string,
 		return "", err
 	}
 	id := c.opts.ConsumerPrefix + uuid.NewString()
-	ds, err := c.channel.Consume(
+	ds, err := c.connector.channel.Consume(
 		queue,
 		id,    // Consumer
 		false, // Auto-Ack
@@ -332,45 +216,23 @@ func (c *Consumer) Cancel(consumer string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.status != connected {
-		status := c.status
+	if c.connector.status != connected {
+		status := c.connector.status
 		if status == reconnecting {
 			return tempError{err: "temporarily failed to cancel: re-connecting with broker"}
 		}
 		return fmt.Errorf("failed to cancel: connection is in %q state", status)
 	}
 
-	return c.channel.Cancel(consumer, false)
+	return c.connector.channel.Cancel(consumer, false)
 }
 
 // Close connection and channel. A new consumer needs to be
 // created in order to consume again after closing it.
 // It is safe to call this method multiple times and in multiple goroutines.
 func (c *Consumer) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
-	if c.status != closed {
-		c.status = closed
-		// stop re-connecting/re-opening a channel
-		close(c.done)
-	}
-
-	// nothing to close if we do not have an open connection and channel
-	var errCh error
-	if c.channel != nil && !c.channel.IsClosed() {
-		errCh = c.channel.Close()
-		if errCh != nil {
-			errCh = fmt.Errorf("failed to close channel: %w", errCh)
-		}
-	}
-	var errCon error
-	if c.conn != nil && !c.conn.IsClosed() {
-		errCon = c.conn.Close()
-	}
-	if errCon != nil {
-		return fmt.Errorf("failed to close connection: %w", errCon)
-	}
-
-	return errCh
+	return c.connector.close()
 }
