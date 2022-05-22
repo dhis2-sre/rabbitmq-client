@@ -1,7 +1,11 @@
 # TODO
 
+
 # Consume
 
+* test what happens if we cancel after re-connect. The cancel would happen with
+  a consumer tag that does not exist on the new channel. Would that cause an
+  exception and close the new channel?
 * create logging interface and pass that to NewConsumer() and use logger instead of fmt.Print
 * make the queue durable. test messages are not lost if there is no consumer.
 * add dead-letter queue with policy on existing queue
