@@ -31,13 +31,13 @@ context cancelations
 ```json
  [
    {
-    "name": "instance_queue_rabbitmq_consumer",
+    "name": "rabbitmq_consumer",
     "listen": "[::]:13306",
     "upstream": "rabbitmq:5672",
     "enabled": true
   },
   {
-    "name": "instance_queue_rabbitmq_producer",
+    "name": "rabbitmq_producer",
      "listen": "[::]:18080",
      "upstream": "rabbitmq:5672",
      "enabled": true

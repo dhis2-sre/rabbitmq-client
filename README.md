@@ -54,7 +54,7 @@ either via
   connection of consumer and producer.
 
 ```sh
-docker exec -it instance-queue-proxy-1 /toxiproxy-cli toggle instance_queue_rabbitmq
+docker exec -it rabbitmq-proxy-1 /toxiproxy-cli toggle rabbitmq
 ```
 
 Refer to https://github.com/Shopify/toxiproxy for more nasty disruptions you

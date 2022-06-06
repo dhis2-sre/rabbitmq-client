@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"time"
 
-	rabbitmq "github.com/dhis2-sre/instance-queue"
+	"github.com/dhis2-sre/rabbitmq"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 

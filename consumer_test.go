@@ -10,7 +10,7 @@ import (
 	"time"
 
 	toxiproxy "github.com/Shopify/toxiproxy/client"
-	rabbitmq "github.com/dhis2-sre/instance-queue"
+	"github.com/dhis2-sre/rabbitmq"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"

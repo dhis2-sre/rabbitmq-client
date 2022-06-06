@@ -1,6 +1,6 @@
 [
   {
-    "name": "instance_queue_rabbitmq",
+    "name": "rabbitmq",
     "listen": "[::]:18080",
     "upstream": "rabbitmq:5672",
     "enabled": true
