@@ -1,4 +1,4 @@
-module github.com/dhis2-sre/instance-queue
+module github.com/dhis2-sre/rabbitmq
 
 go 1.18
 
