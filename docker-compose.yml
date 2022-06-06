@@ -1,0 +1,15 @@
+version: "3.6"
+services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - 127.0.0.1:5672:5672
+      - 127.0.0.1:15672:15672
+  proxy:
+    image: ghcr.io/shopify/toxiproxy
+    command: --config toxiproxy.json --host 0.0.0.0
+    volumes:
+      - ./toxiproxy.json:/toxiproxy.json
+    ports:
+      - 127.0.0.1:8474:8474
+      - 127.0.0.1:18080:18080
