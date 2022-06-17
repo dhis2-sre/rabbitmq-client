@@ -225,6 +225,7 @@ func (s *consumerSuite) TestReconnectConsumerConnection() {
 		require.FailNow("Timed out waiting on message consumption")
 	case got := <-msg:
 		require.Equal("foo", got)
+		fmt.Println("Received message successfully")
 	}
 }
 
