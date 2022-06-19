@@ -80,6 +80,9 @@ go test -v -race -run TestSuiteConsumer . -testify.m TestReconnectConsumerConnec
 ## Limitations
 
 * producer is not yet implement, but will be soon!
+* consumer only supports consuming from the default exchange which is a direct
+  exchange every queue is automatically bound to
+  https://www.rabbitmq.com/tutorials/amqp-concepts.html#exchange-default  
 * logging cannot be configured/turned off. We could define an interface for the
   libraries logging needs. Clients can then pass in any logger. Can be as
   simple as https://github.com/go-redis/redis/pull/1285
