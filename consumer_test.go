@@ -143,7 +143,7 @@ func (s *consumerSuite) TestConsume() {
 	})
 	require.NoError(err)
 
-	fmt.Println("Waiting on message consumption...")
+	s.T().Log("Waiting on message consumption...")
 	tm := time.NewTimer(s.timeout)
 	defer tm.Stop()
 	var got1, got2 string
@@ -183,7 +183,7 @@ func (s *consumerSuite) TestReconnectConsumerConnection() {
 	require.NoError(err)
 	defer func() { require.NoError(consumer.Close()) }()
 
-	fmt.Println("Drop the consumers connection to RabbitMQ before calling Consume()")
+	s.T().Log("Drop the consumers connection to RabbitMQ before calling Consume()")
 	require.NoError(proxy.Disable())
 
 	queue := "test_queue"
@@ -219,13 +219,13 @@ func (s *consumerSuite) TestReconnectConsumerConnection() {
 	})
 	require.NoError(err)
 
-	fmt.Println("Waiting on message consumption...")
+	s.T().Log("Waiting on message consumption...")
 	select {
 	case <-time.After(s.timeout):
 		require.FailNow("Timed out waiting on message consumption")
 	case got := <-msg:
 		require.Equal("foo", got)
-		fmt.Println("Received message successfully")
+		s.T().Log("Received message successfully")
 	}
 }
 
@@ -256,7 +256,7 @@ func (s *consumerSuite) TestCancellation() {
 	})
 	require.NoError(err)
 
-	fmt.Println("Waiting on message consumption...")
+	s.T().Log("Waiting on message consumption...")
 	tm := time.NewTimer(s.timeout)
 	defer tm.Stop()
 	var got string
@@ -267,7 +267,7 @@ func (s *consumerSuite) TestCancellation() {
 	}
 	assert.Equal("msg1", got)
 
-	fmt.Println("Cancelling consumption")
+	s.T().Log("Cancelling consumption")
 	// should be safe to call it multiple times
 	err = consumer.Cancel(cn)
 	require.NoError(err)
