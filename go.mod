@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/rabbitmq/amqp091-go v1.5.0
 	github.com/stretchr/testify v1.8.1
-	github.com/testcontainers/testcontainers-go v0.14.0
+	github.com/testcontainers/testcontainers-go v0.15.0
 )
 
 require (
