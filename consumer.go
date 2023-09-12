@@ -99,6 +99,8 @@ type Consumer struct {
 	status          status
 	notifyConnClose chan *amqp.Error
 	notifyChanClose chan *amqp.Error
+
+	consumers map[string]func(c *Consumer) error // consumers tracks the registered receiver functions per consumer identity
 }
 
 // NewConsumer creates a Consumer that synchronously connects/opens a
@@ -120,10 +122,11 @@ func NewConsumer(URI string, options ...Option) (*Consumer, error) {
 	}
 
 	c := Consumer{
-		opts:   opts,
-		logger: log.New(os.Stdout, "", log.LstdFlags),
-		done:   make(chan struct{}),
-		status: disconnected,
+		opts:      opts,
+		logger:    log.New(os.Stdout, "", log.LstdFlags),
+		done:      make(chan struct{}),
+		status:    disconnected,
+		consumers: make(map[string]func(*Consumer) error),
 	}
 
 	err = c.createConnection(URI)
@@ -195,9 +198,8 @@ func (c *Consumer) createChannel() error {
 	return nil
 }
 
-// maintainConnection ensure the consumers AMQP connection and channel are both
-// open. re-connecting on notifyConnClose events,
-// re-opening a channel on notifyChanClose events
+// maintainConnection ensures the consumers AMQP connection and channel are both open. re-connecting
+// on notifyConnClose events, re-opening a channel on notifyChanClose events
 func (c *Consumer) maintainConnection(addr string) {
 	select {
 	case <-c.done:
@@ -224,13 +226,11 @@ func (c *Consumer) maintainConnection(addr string) {
 			}
 			c.logger.Println("Consumer connection re-established. Opening a new channel...")
 			c.openChannel()
-			c.logger.Println("Consumer connection and channel re-established")
 			break
 		}
 	case <-c.notifyChanClose:
 		c.logger.Println("Channel closed. Opening a new channel...")
 		c.openChannel()
-		c.logger.Println("Consumer channel re-established")
 	}
 
 	c.maintainConnection(addr)
@@ -241,6 +241,8 @@ func (c *Consumer) openChannel() {
 	for {
 		err := c.createChannel()
 		if err == nil {
+			c.logger.Println("Consumer channel re-established. Registering consumers...")
+			c.registerConsumers()
 			return
 		}
 
@@ -261,6 +263,38 @@ func (c *Consumer) openChannel() {
 	}
 }
 
+func (c *Consumer) registerConsumers() {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	for consumerID, consumeFunc := range c.consumers {
+		// We need to exit and release our lock if the connection or channel got closed otherwise we
+		// won't be able to acquire a write lock to set the new connection and channel
+		select {
+		case <-c.done:
+			c.logger.Println("Done closed. Stop trying to register consumers.")
+			return
+		case <-c.notifyConnClose:
+			c.logger.Println("Connection closed. Stop trying to register consumers.")
+			return
+		case <-c.notifyChanClose:
+			c.logger.Println("Channel closed. Stop trying to register consumers.")
+			return
+		default:
+			c.logger.Printf("Registering consumer %q", consumerID)
+			// We assume for now that err!=nil means either the connection or channel is closed. In
+			// these cases retrying to consume would never succeed as we are holding the lock
+			// preventing the connection/channel to be re-established. So we log and move on to
+			// check the notification channels and exit to our connection maintenance logic.
+			err := consumeFunc(c)
+			if err != nil {
+				c.logger.Printf("Failed to register consumer %q due to: %v\n", consumerID, err)
+			}
+		}
+	}
+	c.logger.Println("Done registering consumers")
+}
+
 type tempError struct {
 	err string
 }
@@ -273,13 +307,12 @@ func (te tempError) Temporary() bool {
 	return true
 }
 
-// Consume registers the consumer to receive messages from given queue.
-// Consume synchronously declares and registers a consumer to the queue.
-// Once registered it will return the consumer tag and nil error.
-// receive will be called for every message. Pass the consumer tag to
-// Cancel() to stop consuming messages. Consume will not re-consume if the
-// connection or channel close even if they only close temporarily.
-// Consume can be called multiple times and from multiple goroutines.
+// Consume registers the consumer to receive messages from given queue. Consume synchronously
+// declares and registers a consumer to the queue. Once registered it will return the consumer
+// identifier and nil error. receive will be called for every message. Pass the consumer identifier
+// to Cancel() to stop consuming messages. Consume will re-consume if the connection or channel
+// close only if it returned successfully at first. Consume can be called multiple times and from
+// multiple goroutines.
 func (c *Consumer) Consume(queue string, receive func(d amqp.Delivery)) (string, error) {
 	c.mu.RLock()
 
@@ -321,6 +354,10 @@ func (c *Consumer) Consume(queue string, receive func(d amqp.Delivery)) (string,
 	}
 	c.mu.RUnlock()
 
+	c.mu.Lock()
+	c.consumers[consumerID] = consumeFunc(queue, consumerID, receive)
+	c.mu.Unlock()
+
 	go func() {
 		for d := range deliveries {
 			receive(d)
@@ -330,12 +367,40 @@ func (c *Consumer) Consume(queue string, receive func(d amqp.Delivery)) (string,
 	return consumerID, nil
 }
 
+func consumeFunc(queue, consumerID string, receive func(delivery amqp.Delivery)) func(c *Consumer) error {
+	return func(c *Consumer) error {
+		c.mu.RLock()
+
+		deliveries, err := c.channel.Consume(
+			queue,
+			consumerID,
+			false, // Auto-Ack
+			false, // Exclusive
+			false, // No-local
+			false, // No-Wait
+			nil,   // Args
+		)
+		if err != nil {
+			c.mu.RUnlock()
+			return fmt.Errorf("failed to consume: %v", err)
+		}
+		c.mu.RUnlock()
+
+		go func() {
+			for d := range deliveries {
+				receive(d)
+			}
+		}()
+		return nil
+	}
+}
+
 // Cancel consuming messages for given consumer. The consumer identifier is
 // returned by Consume().
 // It is safe to call this method multiple times and in multiple goroutines.
 func (c *Consumer) Cancel(consumer string) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	if c.status != connected {
 		status := c.status
@@ -345,7 +410,12 @@ func (c *Consumer) Cancel(consumer string) error {
 		return fmt.Errorf("failed to cancel: connection is in %q state", status)
 	}
 
-	return c.channel.Cancel(consumer, false)
+	err := c.channel.Cancel(consumer, false)
+	// We assume for now that Cancel() = err!=nil means the consumer stopped consuming messages. For
+	// example Cancel() on a closed channel or connection will fail. This is why we would want to
+	// remove the consumer and not re-register it once connection/channel are back up.
+	delete(c.consumers, consumer)
+	return err
 }
 
 // Close connection and channel. A new consumer needs to be
@@ -359,6 +429,7 @@ func (c *Consumer) Close() error {
 		c.status = closed
 		// stop re-connecting/re-opening a channel
 		close(c.done)
+		clear(c.consumers)
 	}
 
 	// nothing to close if we do not have an open connection and channel

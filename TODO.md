@@ -1,5 +1,8 @@
 # TODO
 
+* can I name the connection? like the consumer tag. this would make it easier when closing the
+  right connection for testing purposes :)
+
 # Consume
 
 * create logging interface and pass that to NewConsumer() and use logger instead of fmt.Print
@@ -12,6 +15,7 @@
 
 # Tests
 
+* get rid of testify suite? I don't like not being able to use `go test -run` :(
 * setup logger for tests. So we can clearly differentiate it with the clients logs.
   Maybe use https://pkg.go.dev/github.com/testcontainers/testcontainers-go#TestLogger
 * think about how to best separate the test helpers. Having rabbitmq and toxiproxy
@@ -21,7 +25,7 @@
 * skipping a test seems to start rabbitmq in the skipped test
 * what is the default test timeout in go? seems like 10min. make sure tests fail earlier!
 * test different scenarios and if tests would fail according to timeouts and
-context cancelations
+context cancellations
 
 ## Challenge
 
@@ -47,4 +51,7 @@ context cancelations
 
 This would be great for local testing in the docker compose setup and automated
 integration tests.
+
+Can I solve this by creating separate toxiproxy instances one for consumer and producer? Than each
+can have a proxy with the same upstream and their own toxics.
 

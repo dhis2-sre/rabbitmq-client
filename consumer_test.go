@@ -2,6 +2,7 @@ package rabbitmq_test
 
 import (
 	"context"
+
 	"errors"
 	"fmt"
 	"strings"
@@ -110,57 +111,56 @@ func (s *consumerSuite) TestConsumerFailsDueToDifferingQueueProperties() {
 
 func (s *consumerSuite) TestConsume() {
 	require := s.Require()
-	assert := s.Assert()
 
 	consumer, err := rabbitmq.NewConsumer(s.rabbitURI)
 	require.NoError(err)
 	defer func() { require.NoError(consumer.Close()) }()
 
+	msg := make(chan string, 2)
+
 	queue1 := "test_queue_1"
-	msg1 := make(chan string)
 	_, err = consumer.Consume(queue1, func(d amqp.Delivery) {
-		msg1 <- string(d.Body)
+		msg <- string(d.Body)
 		require.NoError(d.Ack(false))
 	})
 	require.NoError(err)
 
 	queue2 := "test_queue_2"
-	msg2 := make(chan string)
 	_, err = consumer.Consume(queue2, func(d amqp.Delivery) {
-		msg2 <- string(d.Body)
+		msg <- string(d.Body)
 		require.NoError(d.Ack(false))
 	})
 	require.NoError(err)
 
+	// nolint:staticcheck // SA1019 https://github.com/rabbitmq/amqp091-go/issues/195
 	err = s.amqpClient.ch.Publish("", queue1, false, false, amqp.Publishing{
 		DeliveryMode: amqp.Persistent,
-		Body:         []byte("msg1"),
+		Body:         []byte("msg on queue 1"),
 	})
 	require.NoError(err)
 
+	// nolint:staticcheck // SA1019 https://github.com/rabbitmq/amqp091-go/issues/195
 	err = s.amqpClient.ch.Publish("", queue2, false, false, amqp.Publishing{
 		DeliveryMode: amqp.Persistent,
-		Body:         []byte("msg2"),
+		Body:         []byte("msg on queue 2"),
 	})
 	require.NoError(err)
 
-	s.T().Log("Waiting on message consumption...")
+	s.T().Log("Waiting on messages...")
 	tm := time.NewTimer(s.timeout)
 	defer tm.Stop()
-	var got1, got2 string
-	for n := 2; n > 0; {
+	var got []string
+	for len(got) < 2 {
 		select {
 		case <-tm.C:
-			assert.Fail("Timed out waiting on message consumption")
-			n = 0
-		case got1 = <-msg1:
-			n--
-		case got2 = <-msg2:
-			n--
+			require.FailNowf("Timed out waiting on messages.", "Want 2 messages, got %v instead", got)
+		case m := <-msg:
+			got = append(got, m)
+			s.T().Logf("Received message %q", m)
 		}
 	}
-	assert.Equal("msg1", got1)
-	assert.Equal("msg2", got2)
+
+	require.ElementsMatch(got, []string{"msg on queue 1", "msg on queue 2"})
 }
 
 func (s *consumerSuite) TestReconnectConsumerConnection() {
@@ -215,75 +215,189 @@ func (s *consumerSuite) TestReconnectConsumerConnection() {
 	}, s.timeout, time.Second)
 
 	// cannot publish before Consume() as queue is not persistent (yet ;) )
-	err = s.amqpClient.ch.Publish("", queue, false, false, amqp.Publishing{
-		DeliveryMode: amqp.Persistent,
-		Body:         []byte("foo"),
-	})
-	require.NoError(err)
-
-	s.T().Log("Waiting on message consumption...")
-	select {
-	case <-time.After(s.timeout):
-		require.FailNow("Timed out waiting on message consumption")
-	case got := <-msg:
-		require.Equal("foo", got)
-		s.T().Log("Received message successfully")
-	}
-}
-
-func (s *consumerSuite) TestCancellation() {
-	require := s.Require()
-	assert := s.Assert()
-
-	consumer, err := rabbitmq.NewConsumer(s.rabbitURI, rabbitmq.WithConsumerPrefix("myservice"))
-	require.NoError(err)
-	defer func() { require.NoError(consumer.Close()) }()
-
-	queue := "test_queue_1"
-	msg := make(chan string)
-	var cnt int32
-	cn, err := consumer.Consume(queue, func(d amqp.Delivery) {
-		msg <- string(d.Body)
-		atomic.AddInt32(&cnt, 1)
-		require.NoError(d.Ack(false))
-	})
-	require.NoError(err)
-	require.True(strings.HasPrefix(cn, "myservice"),
-		fmt.Sprintf("expected consumer tag with prefix %q, got %q", "myservice", cn))
-
-	// message before cancellation should be received
+	// nolint:staticcheck // SA1019 https://github.com/rabbitmq/amqp091-go/issues/195
 	err = s.amqpClient.ch.Publish("", queue, false, false, amqp.Publishing{
 		DeliveryMode: amqp.Persistent,
 		Body:         []byte("msg1"),
 	})
 	require.NoError(err)
 
-	s.T().Log("Waiting on message consumption...")
+	s.T().Log("Waiting on messages...")
+	select {
+	case <-time.After(s.timeout):
+		require.FailNow("Timed out waiting on messages.")
+	case got := <-msg:
+		require.Equal("msg1", got)
+		s.T().Logf("Received message %q", got)
+	}
+}
+
+func (s *consumerSuite) TestReconnectConsume() {
+	require := s.Require()
+
+	proxyRabbitPort := "26379"
+	proxyRabbitPortFull := proxyRabbitPort + "/tcp"
+	proxyContainer, err := NewToxiProxy(s.ctx, s.networkName, WithPorts(proxyRabbitPortFull))
+	require.NoError(err)
+	defer func() { require.NoError(proxyContainer.Terminate(s.ctx)) }()
+
+	toxi := toxiproxy.NewClient(proxyContainer.apiURI)
+	proxy, err := toxi.CreateProxy("test_rabbitmq", "[::]:"+proxyRabbitPort, s.rabbitC.networkAlias+":"+s.rabbitC.port)
+	require.NoError(err)
+
+	rabbitExposedPort, ok := proxyContainer.ports[proxyRabbitPortFull]
+	require.True(ok, "unable to get exposed RabbitMQ port")
+	uri := fmt.Sprintf("amqp://%s:%s@%s:%s", s.rabbitC.usr, s.rabbitC.pw, "127.0.0.1", rabbitExposedPort)
+	consumer, err := rabbitmq.NewConsumer(uri)
+	require.NoError(err)
+	defer func() { require.NoError(consumer.Close()) }()
+
+	msg := make(chan string, 2)
+
+	queue1 := "test_queue_1"
+	consumer1, err := consumer.Consume(queue1, func(d amqp.Delivery) {
+		msg <- string(d.Body)
+		require.NoError(d.Ack(false))
+	})
+	require.NoError(err)
+	defer func() { require.NoError(consumer.Cancel(consumer1)) }()
+
+	queue2 := "test_queue_2"
+	consumer2, err := consumer.Consume(queue2, func(d amqp.Delivery) {
+		msg <- string(d.Body)
+		require.NoError(d.Ack(false))
+	})
+	require.NoError(err)
+	defer func() { require.NoError(consumer.Cancel(consumer2)) }()
+
+	s.T().Log("Drop and prevent connections to RabbitMQ after calling Consume() but before publishing messages.")
+	require.NoError(proxy.Disable())
+	s.T().Log("Allow connections to RabbitMQ to start the registration of consumers.")
+	require.NoError(proxy.Enable())
+
+	// cannot publish before Consume() as queue is not persistent (yet ;) )
+	// nolint:staticcheck // SA1019 https://github.com/rabbitmq/amqp091-go/issues/195
+	err = s.amqpClient.ch.Publish("", queue1, false, false, amqp.Publishing{
+		DeliveryMode: amqp.Persistent,
+		Body:         []byte("msg on queue 1"),
+	})
+	require.NoError(err)
+
+	// nolint:staticcheck // SA1019 https://github.com/rabbitmq/amqp091-go/issues/195
+	err = s.amqpClient.ch.Publish("", queue2, false, false, amqp.Publishing{
+		DeliveryMode: amqp.Persistent,
+		Body:         []byte("msg on queue 2"),
+	})
+	require.NoError(err)
+
+	s.T().Log("Waiting on messages...")
 	tm := time.NewTimer(s.timeout)
 	defer tm.Stop()
-	var got string
-	select {
-	case <-tm.C:
-		assert.Fail("Timed out waiting on message consumption")
-	case got = <-msg:
+	var got []string
+	for len(got) < 2 {
+		select {
+		case <-tm.C:
+			require.FailNowf("Timed out waiting on messages.", "Want 2 messages, got %v instead", got)
+		case m := <-msg:
+			got = append(got, m)
+			s.T().Logf("Received message %q", m)
+		}
 	}
-	assert.Equal("msg1", got)
 
-	s.T().Log("Cancelling consumption")
+	require.ElementsMatch(got, []string{"msg on queue 1", "msg on queue 2"})
+}
+
+func (s *consumerSuite) TestCancellation() {
+	require := s.Require()
+	assert := s.Assert()
+
+	proxyRabbitPort := "26379"
+	proxyRabbitPortFull := proxyRabbitPort + "/tcp"
+	proxyContainer, err := NewToxiProxy(s.ctx, s.networkName, WithPorts(proxyRabbitPortFull))
+	require.NoError(err)
+	defer func() { require.NoError(proxyContainer.Terminate(s.ctx)) }()
+
+	toxi := toxiproxy.NewClient(proxyContainer.apiURI)
+	proxy, err := toxi.CreateProxy("test_rabbitmq", "[::]:"+proxyRabbitPort, s.rabbitC.networkAlias+":"+s.rabbitC.port)
+	require.NoError(err)
+
+	rabbitExposedPort, ok := proxyContainer.ports[proxyRabbitPortFull]
+	require.True(ok, "unable to get exposed RabbitMQ port")
+	uri := fmt.Sprintf("amqp://%s:%s@%s:%s", s.rabbitC.usr, s.rabbitC.pw, "127.0.0.1", rabbitExposedPort)
+	consumer, err := rabbitmq.NewConsumer(uri, rabbitmq.WithConsumerPrefix("myservice"))
+	require.NoError(err)
+	defer func() { require.NoError(consumer.Close()) }()
+
+	msg := make(chan string)
+
+	queue := "test_queue_1"
+	var messageCountConsumer1 int32
+	consumer1, err := consumer.Consume(queue, func(d amqp.Delivery) {
+		msg <- string(d.Body)
+		atomic.AddInt32(&messageCountConsumer1, 1)
+		require.NoError(d.Ack(false))
+	})
+	require.NoError(err)
+
+	require.True(strings.HasPrefix(consumer1, "myservice"),
+		fmt.Sprintf("expected consumer tag with prefix %q, got %q", "myservice", consumer1))
+
+	s.T().Log("Sending first message.")
+	// message before cancellation should be received
+	// nolint:staticcheck // SA1019 https://github.com/rabbitmq/amqp091-go/issues/195
+	err = s.amqpClient.ch.Publish("", queue, false, false, amqp.Publishing{
+		DeliveryMode: amqp.Persistent,
+		Body:         []byte("msg1"),
+	})
+	require.NoError(err)
+
+	s.T().Log("Waiting on messages...")
+	select {
+	case <-time.After(s.timeout):
+		require.FailNow("Timed out waiting on messages.")
+	case got := <-msg:
+		require.Equal("msg1", got)
+		s.T().Logf("Received message %q", got)
+	}
+
+	s.T().Log("Registering a second consumer to the same queue.")
+	consumer2, err := consumer.Consume(queue, func(d amqp.Delivery) {
+		msg <- string(d.Body)
+		require.NoError(d.Ack(false))
+	})
+	require.NoError(err)
+	defer func() { require.NoError(consumer.Cancel(consumer2)) }()
+
+	s.T().Log("Cancelling consumer1")
 	// should be safe to call it multiple times
-	err = consumer.Cancel(cn)
+	err = consumer.Cancel(consumer1)
 	require.NoError(err)
-	err = consumer.Cancel(cn)
+	err = consumer.Cancel(consumer1)
 	require.NoError(err)
 
-	// message after cancellation should NOT be received
+	s.T().Log("Drop and prevent connections to RabbitMQ to show consumer1 will not be registered again.")
+	require.NoError(proxy.Disable())
+	s.T().Log("Allow connections to RabbitMQ to start the registration of consumers.")
+	require.NoError(proxy.Enable())
+
+	s.T().Log("Sending second message.")
+	// message after cancellation should NOT be received by consumer1
 	err = s.amqpClient.ch.Publish("", queue, false, false, amqp.Publishing{
 		DeliveryMode: amqp.Persistent,
 		Body:         []byte("msg2"),
 	})
 	require.NoError(err)
 
-	assert.Equal(int32(1), cnt)
+	s.T().Log("Waiting on messages...")
+	select {
+	case <-time.After(s.timeout):
+		require.FailNow("Timed out waiting on messages.")
+	case got := <-msg:
+		require.Equal("msg2", got)
+		s.T().Logf("Received message %q", got)
+	}
+
+	assert.Equalf(int32(1), messageCountConsumer1, "First consumer got %d messages, want %d instead", messageCountConsumer1, 1)
 }
 
 func (s *consumerSuite) TestClose() {
@@ -350,10 +464,10 @@ func (s *consumerSuite) SetupSuite() {
 }
 
 func (s *consumerSuite) TearDownSuite() {
+	require := s.Require()
 	ctx := context.TODO()
 
-	err := s.network.Remove(ctx)
-	s.Require().NoError(err, "failed tearing down Docker network")
+	require.NoError(s.network.Remove(ctx), "failed to remove the Docker network")
 }
 
 func (s *consumerSuite) SetupTest() {
@@ -377,6 +491,6 @@ func (s *consumerSuite) SetupTest() {
 func (s *consumerSuite) TearDownTest() {
 	require := s.Require()
 
-	require.NoError(s.amqpClient.conn.Close())
-	require.NoError(s.rabbitC.Terminate(s.ctx))
+	require.NoError(s.amqpClient.conn.Close(), "failed to close the AMQP client connection")
+	require.NoError(s.rabbitC.Terminate(s.ctx), "failed to terminate the RabbitMQ container")
 }
