@@ -1,6 +1,6 @@
 module github.com/dhis2-sre/rabbitmq
 
-go 1.18
+go 1.21
 
 require (
 	github.com/Shopify/toxiproxy v2.1.4+incompatible
