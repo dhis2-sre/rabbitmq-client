@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPreset(t *testing.T) {
+func TestProducer(t *testing.T) {
 	t.Parallel()
 
 	// Given
