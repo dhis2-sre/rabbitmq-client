@@ -1,8 +1,10 @@
 package queue
 
 import (
+	"context"
 	"encoding/json"
 	"log"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -17,7 +19,7 @@ type Producer struct {
 	url string
 }
 
-func (p *Producer) Produce(channel Channel, payload interface{}) {
+func (p *Producer) Produce(channel Channel, payload any) {
 	log.Printf("Channel: %s", channel)
 	log.Printf("Payload: %+v", payload)
 
@@ -53,11 +55,14 @@ func (p *Producer) Produce(channel Channel, payload interface{}) {
 	marshal, err := json.Marshal(payload)
 	failOnError(err, "Failed to json serialize payload")
 
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	publishing := amqp.Publishing{
 		ContentType: "application/json",
 		Body:        marshal,
 	}
-	err = ch.Publish(
+	err = ch.PublishWithContext(ctx,
 		"",
 		q.Name,
 		false,
