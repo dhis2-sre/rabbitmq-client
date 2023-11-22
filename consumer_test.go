@@ -9,8 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dhis2-sre/rabbitmq-client"
+
 	toxiproxy "github.com/Shopify/toxiproxy/client"
-	"github.com/dhis2-sre/rabbitmq"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/suite"
 	"github.com/testcontainers/testcontainers-go"

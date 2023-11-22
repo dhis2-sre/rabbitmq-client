@@ -1,4 +1,4 @@
-module github.com/dhis2-sre/rabbitmq
+module github.com/dhis2-sre/rabbitmq-client
 
 go 1.21
 
