@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/Shopify/toxiproxy v2.1.4+incompatible
 	github.com/docker/go-connections v0.4.0
-	github.com/google/uuid v1.4.0
+	github.com/google/uuid v1.6.0
 	github.com/orlangure/gnomock v0.30.0
 	github.com/rabbitmq/amqp091-go v1.9.0
 	github.com/stretchr/testify v1.8.4
