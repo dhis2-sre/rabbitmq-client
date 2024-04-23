@@ -165,7 +165,7 @@ func (c *Consumer) createConnection(addr string) error {
 	}
 	c.conn = conn
 
-	c.notifyConnClose = make(chan *amqp.Error)
+	c.notifyConnClose = make(chan *amqp.Error, 1)
 	c.conn.NotifyClose(c.notifyConnClose)
 
 	return nil
@@ -201,10 +201,10 @@ func (c *Consumer) createChannel() error {
 func (c *Consumer) maintainConnection(addr string) {
 	select {
 	case <-c.done:
-		c.logger.Println("Stopping connection loop due to done closed")
+		c.logger.Println("Done closed. Stop trying to maintain the connection.")
 		return
 	case <-c.notifyConnClose:
-		c.logger.Println("Connection closed. Re-connecting...")
+		c.logger.Println("Connection closed. Opening a new connection...")
 
 		for {
 			err := c.createConnection(addr)
@@ -216,20 +216,19 @@ func (c *Consumer) maintainConnection(addr string) {
 					if !t.Stop() {
 						<-t.C
 					}
-					c.logger.Println("Stopping connection loop due to done closed")
+					c.logger.Println("Done closed. Stop trying to open a connection.")
 					return
 				case <-t.C:
 				}
 				continue
 			}
-			c.logger.Println("Consumer connection re-established")
-
+			c.logger.Println("Consumer connection re-established. Opening a new channel...")
 			c.openChannel()
 			c.logger.Println("Consumer connection and channel re-established")
 			break
 		}
 	case <-c.notifyChanClose:
-		c.logger.Println("Channel closed. Re-opening new one...")
+		c.logger.Println("Channel closed. Opening a new channel...")
 		c.openChannel()
 		c.logger.Println("Consumer channel re-established")
 	}
@@ -252,6 +251,10 @@ func (c *Consumer) openChannel() {
 			if !t.Stop() {
 				<-t.C
 			}
+			c.logger.Println("Done closed. Stop trying to open a channel.")
+			return
+		case <-c.notifyConnClose:
+			c.logger.Println("Connection closed. Stop trying to open a channel.")
 			return
 		case <-t.C:
 		}
@@ -301,10 +304,11 @@ func (c *Consumer) Consume(queue string, receive func(d amqp.Delivery)) (string,
 		c.mu.RUnlock()
 		return "", err
 	}
-	id := c.opts.ConsumerPrefix + uuid.NewString()
-	ds, err := c.channel.Consume(
+
+	consumerID := c.opts.ConsumerPrefix + uuid.NewString()
+	deliveries, err := c.channel.Consume(
 		queue,
-		id,    // Consumer
+		consumerID,
 		false, // Auto-Ack
 		false, // Exclusive
 		false, // No-local
@@ -318,11 +322,12 @@ func (c *Consumer) Consume(queue string, receive func(d amqp.Delivery)) (string,
 	c.mu.RUnlock()
 
 	go func() {
-		for d := range ds {
+		for d := range deliveries {
 			receive(d)
 		}
 	}()
-	return id, nil
+
+	return consumerID, nil
 }
 
 // Cancel consuming messages for given consumer. The consumer identifier is

@@ -184,7 +184,7 @@ func (s *consumerSuite) TestReconnectConsumerConnection() {
 	require.NoError(err)
 	defer func() { require.NoError(consumer.Close()) }()
 
-	s.T().Log("Drop the consumers connection to RabbitMQ before calling Consume()")
+	s.T().Log("Drop and prevent connections to RabbitMQ before calling Consume()")
 	require.NoError(proxy.Disable())
 
 	queue := "test_queue"
@@ -201,6 +201,7 @@ func (s *consumerSuite) TestReconnectConsumerConnection() {
 	assert.Error(err)
 	require.True(errors.As(err, &temp), "consumer re-connecting should be a temporary error")
 
+	s.T().Log("Allow connections to RabbitMQ to start the consumers re-connection logic")
 	require.NoError(proxy.Enable())
 
 	msg := make(chan string)
