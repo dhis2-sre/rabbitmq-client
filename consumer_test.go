@@ -112,7 +112,7 @@ func (s *consumerSuite) TestConsumerFailsDueToDifferingQueueProperties() {
 func (s *consumerSuite) TestConsume() {
 	require := s.Require()
 
-	consumer, err := rabbitmq.NewConsumer(s.rabbitURI)
+	consumer, err := rabbitmq.NewConsumer(s.rabbitURI, rabbitmq.WithConnectionName(s.T().Name()))
 	require.NoError(err)
 	defer func() { require.NoError(consumer.Close()) }()
 

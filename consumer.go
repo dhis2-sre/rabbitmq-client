@@ -19,6 +19,10 @@ const (
 
 // An Options customizes the consumer.
 type Options struct {
+	// ConnectionName sets the `connection_name` property on the RabbitMQ connection. This can aid
+	// in observing/debugging connections (RabbitMQ management/CLI).
+	ConnectionName string
+
 	// ConsumerPrefix sets the prefix to the auto-generated consumer tag. This
 	// can aid in observing/debugging consumers on a channel (RabbitMQ management).
 	ConsumerPrefix string
@@ -34,6 +38,14 @@ type Options struct {
 
 // An Option configures consumer options.
 type Option func(*Options)
+
+// WithConnectionName sets the `connection_name` property on the RabbitMQ connection. This can aid
+// in observing/debugging connections (RabbitMQ management/CLI).
+func WithConnectionName(name string) Option {
+	return func(o *Options) {
+		o.ConnectionName = name
+	}
+}
 
 // WithConsumerPrefix sets the prefix to the auto-generated consumer tag. The
 // consumer tag is returned by Consume(). This can aid in observing/debugging
@@ -162,7 +174,11 @@ func (c *Consumer) createConnection(addr string) error {
 		c.status = connecting
 	}
 
-	conn, err := amqp.Dial(addr)
+	config := amqp.Config{Properties: amqp.NewConnectionProperties()}
+	if c.opts.ConnectionName != "" {
+		config.Properties.SetClientConnectionName(c.opts.ConnectionName)
+	}
+	conn, err := amqp.DialConfig(addr, config)
 	if err != nil {
 		return err
 	}
