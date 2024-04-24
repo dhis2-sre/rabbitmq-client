@@ -52,17 +52,23 @@ either via
 1. the management console at http://localhost:15672/ using user/pw guest. This
    allows you to drop the connection of consumer/producer individually.
 2. or [toxiproxy](https://github.com/Shopify/toxiproxy) which is running in a
-  docker container proxying requests to RabbitMQ. This approach will drop the
-  connection of both consumer and producer.
+  docker container proxying requests to RabbitMQ.
+
+To drop/allow connections from the [consumer](./cmd/consumer/main.go) do
 
 ```sh
-docker compose exec proxy /toxiproxy-cli toggle rabbitmq
+docker compose exec proxy /toxiproxy-cli toggle rabbitmq_consumer
 ```
 
-Refer to https://github.com/Shopify/toxiproxy for more nasty disruptions you
-can play with :smirk:
+To drop/allow connections from the [producer](./cmd/producer/main.go) do
 
-Note: the example producer will not re-connect see [Limitations](#limitations).
+```sh
+docker compose exec proxy /toxiproxy-cli toggle rabbitmq_producer
+```
+
+Note: the example producer will not re-connect because of its [limitations](#limitations).
+
+Refer to https://github.com/Shopify/toxiproxy for more nasty disruptions you can play with :smirk:
 
 ## Test
 

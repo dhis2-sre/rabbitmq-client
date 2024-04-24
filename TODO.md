@@ -22,32 +22,3 @@
 * what is the default test timeout in go? seems like 10min. make sure tests fail earlier!
 * test different scenarios and if tests would fail according to timeouts and
 context cancellations
-
-## Challenge
-
-* I cannot populate toxiproxy using the same upstream twice. I would like to
-  disturb producer and consumer separately like so
-
-```json
- [
-   {
-    "name": "rabbitmq_consumer",
-    "listen": "[::]:13306",
-    "upstream": "rabbitmq:5672",
-    "enabled": true
-  },
-  {
-    "name": "rabbitmq_producer",
-     "listen": "[::]:18080",
-     "upstream": "rabbitmq:5672",
-     "enabled": true
-  }
-]
-```
-
-This would be great for local testing in the docker compose setup and automated
-integration tests.
-
-Can I solve this by creating separate toxiproxy instances one for consumer and producer? Than each
-can have a proxy with the same upstream and their own toxics.
-

@@ -17,7 +17,7 @@ func main() {
 
 func run() error {
 	queue := "queue_client_example"
-	addr := "amqp://guest:guest@localhost:18080"
+	addr := "amqp://guest:guest@localhost:18081"
 
 	c, err := amqp.Dial(addr)
 	if err != nil {
