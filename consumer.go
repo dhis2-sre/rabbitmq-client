@@ -332,7 +332,6 @@ func (te tempError) Temporary() bool {
 // multiple goroutines.
 func (c *Consumer) Consume(queue string, receive func(d amqp.Delivery)) (string, error) {
 	c.mu.RLock()
-
 	if c.status != connected {
 		status := c.status
 		c.mu.RUnlock()
@@ -341,7 +340,10 @@ func (c *Consumer) Consume(queue string, receive func(d amqp.Delivery)) (string,
 		}
 		return "", fmt.Errorf("failed to consume: connection is in %q state", status)
 	}
+	c.mu.RUnlock()
 
+	consumerID := c.opts.ConsumerPrefix + uuid.NewString()
+	c.mu.Lock()
 	_, err := c.channel.QueueDeclare(
 		queue,
 		false, // Durable
@@ -351,13 +353,9 @@ func (c *Consumer) Consume(queue string, receive func(d amqp.Delivery)) (string,
 		nil,   // Arguments
 	)
 	if err != nil {
-		c.mu.RUnlock()
+		c.mu.Unlock()
 		return "", err
 	}
-	c.mu.RUnlock()
-
-	consumerID := c.opts.ConsumerPrefix + uuid.NewString()
-	c.mu.Lock()
 	deliveries, err := c.channel.Consume(
 		queue,
 		consumerID,
@@ -383,10 +381,22 @@ func (c *Consumer) Consume(queue string, receive func(d amqp.Delivery)) (string,
 	return consumerID, nil
 }
 
+// consumeFunc returns a function for registering a consumers' receiver to given queue. The returned
+// function is not safe for concurrent use. You are responsible for synchronization/acquiring a
+// necessary lock.
 func consumeFunc(queue, consumerID string, receive func(delivery amqp.Delivery)) func(c *Consumer) error {
 	return func(c *Consumer) error {
-		c.mu.RLock()
-
+		_, err := c.channel.QueueDeclare(
+			queue,
+			false, // Durable
+			false, // Delete when unused
+			false, // Exclusive
+			false, // No-wait
+			nil,   // Arguments
+		)
+		if err != nil {
+			return fmt.Errorf("failed to declare queue %q: %v", queue, err)
+		}
 		deliveries, err := c.channel.Consume(
 			queue,
 			consumerID,
@@ -397,10 +407,8 @@ func consumeFunc(queue, consumerID string, receive func(delivery amqp.Delivery))
 			nil,   // Args
 		)
 		if err != nil {
-			c.mu.RUnlock()
 			return fmt.Errorf("failed to consume: %v", err)
 		}
-		c.mu.RUnlock()
 
 		go func() {
 			for d := range deliveries {
