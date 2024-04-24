@@ -1,8 +1,5 @@
 # TODO
 
-* can I name the connection? like the consumer tag. this would make it easier when closing the
-  right connection for testing purposes :)
-
 # Consume
 
 * create logging interface and pass that to NewConsumer() and use logger instead of fmt.Print
@@ -15,7 +12,6 @@
 
 # Tests
 
-* get rid of testify suite? I don't like not being able to use `go test -run` :(
 * setup logger for tests. So we can clearly differentiate it with the clients logs.
   Maybe use https://pkg.go.dev/github.com/testcontainers/testcontainers-go#TestLogger
 * think about how to best separate the test helpers. Having rabbitmq and toxiproxy

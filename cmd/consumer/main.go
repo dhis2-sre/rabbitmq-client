@@ -31,7 +31,7 @@ func run(ctx context.Context) error {
 	addr := "amqp://guest:guest@localhost:18080"
 	consumer, err := rabbitmq.NewConsumer(addr,
 		rabbitmq.WithConnectionName("rabbitmq_client_example_consumer"),
-		rabbitmq.WithConsumerPrefix("rabbitmq_client_example"),
+		rabbitmq.WithConsumerPrefix("rabbitmq_client_example_consumer"),
 	)
 	if err != nil {
 		return err

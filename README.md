@@ -19,7 +19,9 @@ Some things we considered/implemented
     definitely not onto goroutines
 * re-connect/re-open channel on disconnect or channel exceptions
   see https://github.com/rabbitmq/amqp091-go/issues/40
-* consumer tag prefix for easier debugging on consumers
+* re-register consumers after connection/channel have been re-established
+* allow setting a connection name for easier debugging of consumers
+* allow setting a consumer tag prefix for easier debugging of consumers
 
 ## Getting started
 
@@ -32,7 +34,7 @@ make dev
 Setup a consumer using the RabbitMQ client library
 
 ```sh
-go run cmd/consume/main.go
+go run cmd/consumer/main.go
 ```
 
 Setup a producer using the amqp library (might be replaced with RabbitMQ client library
@@ -51,17 +53,16 @@ either via
    allows you to drop the connection of consumer/producer individually.
 2. or [toxiproxy](https://github.com/Shopify/toxiproxy) which is running in a
   docker container proxying requests to RabbitMQ. This approach will drop the
-  connection of consumer and producer.
+  connection of both consumer and producer.
 
 ```sh
-docker exec -it rabbitmq-proxy-1 /toxiproxy-cli toggle rabbitmq
+docker compose exec proxy /toxiproxy-cli toggle rabbitmq
 ```
 
 Refer to https://github.com/Shopify/toxiproxy for more nasty disruptions you
 can play with :smirk:
 
-Note: the consumer will re-connect but not re-consume (see
-[Limitations](#limitations)).
+Note: the example producer will not re-connect see [Limitations](#limitations).
 
 ## Test
 
@@ -79,7 +80,8 @@ go test -v -race -run TestSuiteConsumer . -testify.m TestReconnectConsumerConnec
 
 ## Limitations
 
-* producer is not implement in the same way as consumer. We don't know if we will.
+* producer is not implement in the same way as consumer. This means it does not re-connect for you.
+We don't know if we will implement the producer in the same way as the consumer.
 * logging cannot be configured/turned off. We could define an interface for the
   libraries logging needs. Clients can then pass in any logger. Can be as
   simple as https://github.com/go-redis/redis/pull/1285
