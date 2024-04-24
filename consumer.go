@@ -304,7 +304,8 @@ func (c *Consumer) registerConsumers() {
 			// check the notification channels and exit to our connection maintenance logic.
 			err := consumeFunc(c)
 			if err != nil {
-				c.logger.Printf("Failed to register consumer %q due to: %v\n", consumerID, err)
+				c.logger.Printf("Stop registering consumers as we failed to register consumer %q due to: %v\n", consumerID, err)
+				return
 			}
 		}
 	}
