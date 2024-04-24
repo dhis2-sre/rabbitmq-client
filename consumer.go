@@ -353,8 +353,10 @@ func (c *Consumer) Consume(queue string, receive func(d amqp.Delivery)) (string,
 		c.mu.RUnlock()
 		return "", err
 	}
+	c.mu.RUnlock()
 
 	consumerID := c.opts.ConsumerPrefix + uuid.NewString()
+	c.mu.Lock()
 	deliveries, err := c.channel.Consume(
 		queue,
 		consumerID,
@@ -365,12 +367,9 @@ func (c *Consumer) Consume(queue string, receive func(d amqp.Delivery)) (string,
 		nil,   // Args
 	)
 	if err != nil {
-		c.mu.RUnlock()
+		c.mu.Unlock()
 		return "", err
 	}
-	c.mu.RUnlock()
-
-	c.mu.Lock()
 	c.consumers[consumerID] = consumeFunc(queue, consumerID, receive)
 	c.mu.Unlock()
 
