@@ -283,7 +283,7 @@ func (c *Consumer) registerConsumers() {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	for consumerID, consumeFunc := range c.consumers {
+	for consumerID, registerConsumer := range c.consumers {
 		// We need to exit and release our lock if the connection or channel got closed otherwise we
 		// won't be able to acquire a write lock to set the new connection and channel
 		select {
@@ -302,7 +302,7 @@ func (c *Consumer) registerConsumers() {
 			// these cases retrying to consume would never succeed as we are holding the lock
 			// preventing the connection/channel to be re-established. So we log and move on to
 			// check the notification channels and exit to our connection maintenance logic.
-			err := consumeFunc(c)
+			err := registerConsumer(c)
 			if err != nil {
 				c.logger.Printf("Stop registering consumers as we failed to register consumer %q due to: %v\n", consumerID, err)
 				return
@@ -344,47 +344,22 @@ func (c *Consumer) Consume(queue string, receive func(d amqp.Delivery)) (string,
 
 	consumerID := c.opts.ConsumerPrefix + uuid.NewString()
 	c.mu.Lock()
-	_, err := c.channel.QueueDeclare(
-		queue,
-		false, // Durable
-		false, // Delete when unused
-		false, // Exclusive
-		false, // No-wait
-		nil,   // Arguments
-	)
+	registerConsumer := registerConsumerFunc(queue, consumerID, receive)
+	err := registerConsumer(c)
 	if err != nil {
 		c.mu.Unlock()
 		return "", err
 	}
-	deliveries, err := c.channel.Consume(
-		queue,
-		consumerID,
-		false, // Auto-Ack
-		false, // Exclusive
-		false, // No-local
-		false, // No-Wait
-		nil,   // Args
-	)
-	if err != nil {
-		c.mu.Unlock()
-		return "", err
-	}
-	c.consumers[consumerID] = consumeFunc(queue, consumerID, receive)
+	c.consumers[consumerID] = registerConsumer
 	c.mu.Unlock()
-
-	go func() {
-		for d := range deliveries {
-			receive(d)
-		}
-	}()
 
 	return consumerID, nil
 }
 
-// consumeFunc returns a function for registering a consumers' receiver to given queue. The returned
-// function is not safe for concurrent use. You are responsible for synchronization/acquiring a
-// necessary lock.
-func consumeFunc(queue, consumerID string, receive func(delivery amqp.Delivery)) func(c *Consumer) error {
+// registerConsumerFunc returns a function for registering a consumers' receiver to the given queue.
+// The returned function is not safe for concurrent use. You are responsible for
+// synchronization/acquiring a necessary lock.
+func registerConsumerFunc(queue, consumerID string, receive func(delivery amqp.Delivery)) func(c *Consumer) error {
 	return func(c *Consumer) error {
 		_, err := c.channel.QueueDeclare(
 			queue,
