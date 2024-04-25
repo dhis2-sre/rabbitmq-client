@@ -29,7 +29,10 @@ type temporary interface {
 func run(ctx context.Context) error {
 	queue := "queue_client_example"
 	addr := "amqp://guest:guest@localhost:18080"
-	consumer, err := rabbitmq.NewConsumer(addr, rabbitmq.WithConsumerPrefix("queue_client_example"))
+	consumer, err := rabbitmq.NewConsumer(addr,
+		rabbitmq.WithConnectionName("rabbitmq_client_example_consumer"),
+		rabbitmq.WithConsumerPrefix("rabbitmq_client_example_consumer"),
+	)
 	if err != nil {
 		return err
 	}
