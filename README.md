@@ -78,11 +78,7 @@ Run all tests using
 make test
 ```
 
-Run an individual test using
-
-```sh
-go test -v -race -run TestSuiteConsumer . -testify.m TestReconnectConsumerConnection
-```
+Run an individual tests using `go test -run`.
 
 ## Limitations
 
