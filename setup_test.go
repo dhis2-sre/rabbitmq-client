@@ -55,7 +55,7 @@ func (rbw *rabbitMQStrategy) WaitUntilReady(ctx context.Context, target wait.Str
 		case <-time.After(waitInterval):
 			port, err := target.MappedPort(ctx, nat.Port(rbw.port))
 			if err != nil {
-				return fmt.Errorf("No mapped port for RabbitMQ found: %w", err)
+				return fmt.Errorf("no mapped port for RabbitMQ found: %w", err)
 			}
 			conn, err := rbw.connect(ipAddress, port.Port())
 			if err != nil {
