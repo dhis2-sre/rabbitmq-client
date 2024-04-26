@@ -19,7 +19,7 @@ import (
 )
 
 // timeout waiting on messages or other queue operations
-var timeout time.Duration = 20 * time.Second
+var timeout time.Duration = 30 * time.Second
 
 func TestNewConsumer(t *testing.T) {
 	amqp := inttest.SetupRabbitMQ(t)
