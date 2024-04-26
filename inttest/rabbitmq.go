@@ -83,8 +83,8 @@ func SetupRabbitMQ(t *testing.T) *AMQP {
 // networking issues use the Proxy and read the docs at http://github.com/Shopify/toxiproxy.
 type AMQP struct {
 	rabbitMQContainer *rabbitmqContainer
-	conn              *amqpgo.Connection // Connection established directly with RabbitMQ without doing through the proxy.
-	Channel           *amqpgo.Channel    // Channel established directly with RabbitMQ without doing through the proxy.
+	conn              *amqpgo.Connection // Connection established directly with RabbitMQ without going through the proxy.
+	Channel           *amqpgo.Channel    // Channel established directly with RabbitMQ without going through the proxy.
 	Proxy             *toxiproxy.Proxy   // Proxy in front of RabbitMQ
 	ProxiedURI        string             // Proxied AMQP URI going via toxiproxy to RabbitMQ. Use this if you want to test an implementation. Use URI if you want to consume/publish directly to RabbitMQ for example in an assertion.
 	proxiedHost       string
@@ -116,8 +116,8 @@ func (a *AMQP) Publish(t *testing.T, queue, message string) {
 	require.NoError(t, err, "failed to publish message to queue %q", queue)
 }
 
-// PublishEvery a message to given queue in given interval until done is closed. This will go
-// directly to RabbitMQ using URI and thus not go via the proxy.
+// PublishEvery publishes a message to given queue in given interval until done is closed. This will
+// go directly to RabbitMQ using URI and thus not go via the proxy.
 func (a *AMQP) PublishEvery(t *testing.T, tick time.Duration, done chan struct{}, queue, message string) {
 	t.Helper()
 
