@@ -217,39 +217,39 @@ func (c *Consumer) createChannel() error {
 // maintainConnection ensures the consumers AMQP connection and channel are both open. re-connecting
 // on notifyConnClose events, re-opening a channel on notifyChanClose events
 func (c *Consumer) maintainConnection(addr string) {
-	select {
-	case <-c.done:
-		c.logger.Println("Done closed. Stop trying to maintain the connection.")
-		return
-	case <-c.notifyConnClose:
-		c.logger.Println("Connection closed. Opening a new connection...")
+	for {
+		select {
+		case <-c.done:
+			c.logger.Println("Done closed. Stop trying to maintain the connection.")
+			return
+		case <-c.notifyConnClose:
+			c.logger.Println("Connection closed. Opening a new connection...")
 
-		for {
-			err := c.createConnection(addr)
-			if err != nil {
-				c.logger.Println("Failed to connect. Retrying...")
-				t := time.NewTimer(c.opts.ReconnectWait)
-				select {
-				case <-c.done:
-					if !t.Stop() {
-						<-t.C
+			for {
+				err := c.createConnection(addr)
+				if err != nil {
+					c.logger.Println("Failed to connect. Retrying...")
+					t := time.NewTimer(c.opts.ReconnectWait)
+					select {
+					case <-c.done:
+						if !t.Stop() {
+							<-t.C
+						}
+						c.logger.Println("Done closed. Stop trying to open a connection.")
+						return
+					case <-t.C:
 					}
-					c.logger.Println("Done closed. Stop trying to open a connection.")
-					return
-				case <-t.C:
+					continue
 				}
-				continue
+				c.logger.Println("Consumer connection re-established. Opening a new channel...")
+				c.openChannel()
+				break
 			}
-			c.logger.Println("Consumer connection re-established. Opening a new channel...")
+		case <-c.notifyChanClose:
+			c.logger.Println("Channel closed. Opening a new channel...")
 			c.openChannel()
-			break
 		}
-	case <-c.notifyChanClose:
-		c.logger.Println("Channel closed. Opening a new channel...")
-		c.openChannel()
 	}
-
-	c.maintainConnection(addr)
 }
 
 // openChannel opens a channel. Assumes a connection is open.
