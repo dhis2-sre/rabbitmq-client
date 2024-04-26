@@ -2,7 +2,6 @@
 
 # Consume
 
-* create logging interface and pass that to NewConsumer() and use logger instead of fmt.Print
 * make the queue durable. test messages are not lost if there is no consumer.
 
 # Publish
@@ -13,11 +12,6 @@
 
 * setup logger for tests. So we can clearly differentiate it with the clients logs.
   Maybe use https://pkg.go.dev/github.com/testcontainers/testcontainers-go#TestLogger
-* think about how to best separate the test helpers. Having rabbitmq and toxiproxy
-  helpers in the same package is a bit awkward with regards to their options.
-  Own packages would be nice, but they should obviously not be included in the
-  binary.
-* skipping a test seems to start rabbitmq in the skipped test
-* what is the default test timeout in go? seems like 10min. make sure tests fail earlier!
-* test different scenarios and if tests would fail according to timeouts and
-context cancellations
+* what is a good use of context in tests. testcontainers accept a context in their signatures.
+Should we create a context with timeouts that make sense to us? or should these also take into
+account what the `-timeout` flag is with which the tests are run?

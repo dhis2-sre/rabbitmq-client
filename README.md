@@ -84,10 +84,6 @@ Run an individual tests using `go test -run`.
 
 * producer is not implement in the same way as consumer. This means it does not re-connect for you.
 We don't know if we will implement the producer in the same way as the consumer.
-* logging cannot be configured/turned off. We could define an interface for the
-  libraries logging needs. Clients can then pass in any logger. Can be as
-  simple as https://github.com/go-redis/redis/pull/1285
-  or simply use and accept an slog.Logger
 * re-connection logic does not give you any insight into its state. We could
   provide callbacks that are invoked on disconnect/reconnect like
   https://pkg.go.dev/github.com/nats-io/nats.go#DisconnectErrHandler
@@ -104,3 +100,5 @@ new methods using Context do not all seem to be correctly using it https://githu
   can see in the signature of the receiver passed to Consume(). This is something we could do as we
   do not expose any other AMQP library specifics.
 * we do not support different topologies. We only consume from the default exchange.
+* we are logging using [slog](https://pkg.go.dev/log/slog). You can pass in an `slog.Logger`
+otherwise we are using the `slog.Default()`.
