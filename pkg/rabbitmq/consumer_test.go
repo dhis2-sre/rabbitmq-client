@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dhis2-sre/rabbitmq-client"
-	"github.com/dhis2-sre/rabbitmq-client/inttest"
+	"github.com/dhis2-sre/rabbitmq-client/pkg/inttest"
+	"github.com/dhis2-sre/rabbitmq-client/pkg/rabbitmq"
 	"github.com/google/uuid"
 	amqpgo "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/assert"
