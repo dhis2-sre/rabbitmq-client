@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"time"
@@ -29,27 +30,29 @@ type temporary interface {
 func run(ctx context.Context) error {
 	queue := "queue_client_example"
 	addr := "amqp://guest:guest@localhost:18080"
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	consumer, err := rabbitmq.NewConsumer(addr,
 		rabbitmq.WithConnectionName("rabbitmq_client_example_consumer"),
-		rabbitmq.WithConsumerPrefix("rabbitmq_client_example_consumer"),
+		rabbitmq.WithConsumerTagPrefix("rabbitmq_client_example_consumer"),
+		rabbitmq.WithLogger(logger.WithGroup("rabbitmq")),
 	)
 	if err != nil {
 		return err
 	}
-	fmt.Println("Connected, login to management console at http://localhost:15672/ using user/pw guest")
+	logger.Info("Connected, login to management console at http://localhost:15672/ using user/pw guest.")
 	defer func() {
-		fmt.Println("Closing consumer")
+		logger.Info("Closing consumer.")
 		consumer.Close()
 	}()
 
 	for i := 0; i < 3; i++ {
-		fmt.Printf("Trying to consume from queue %q at %q\n", queue, addr)
-		ct, err := consumer.Consume(queue, func(d amqp.Delivery) {
-			fmt.Printf("received: %s\n", string(d.Body))
+		logger.Info("Trying to consume from queue.", "queue", queue, "address", addr)
+		consumerTag, err := consumer.Consume(queue, func(d amqp.Delivery) {
+			logger.Info("Received message.", "message", string(d.Body))
 			_ = d.Ack(false)
 		})
 		if err == nil {
-			fmt.Printf("Consume succeeded, consumer tag %q\n", ct)
+			logger.Info("Consume succeeded.", "consumerTag", consumerTag)
 			break
 		}
 
@@ -58,12 +61,12 @@ func run(ctx context.Context) error {
 			return fmt.Errorf("error is not temporary: %w", err)
 		}
 
-		fmt.Printf("Consume failed: %s\n", err)
+		logger.Error("Consume failed.", "error", err)
 		time.Sleep(time.Second * 5)
 	}
 
 	<-ctx.Done()
-	fmt.Println("Context is done, stop consuming")
+	logger.Info("Context is done, stop consuming.")
 
 	return nil
 }

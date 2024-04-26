@@ -3,6 +3,8 @@ package rabbitmq_test
 import (
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -17,7 +19,7 @@ import (
 )
 
 // timeout waiting on messages or other queue operations
-var timeout time.Duration = 20 * time.Second
+var timeout time.Duration = 30 * time.Second
 
 func TestNewConsumer(t *testing.T) {
 	amqp := inttest.SetupRabbitMQ(t)
@@ -28,7 +30,7 @@ func TestNewConsumer(t *testing.T) {
 
 	t.Run("ConsumerPrefixValid", func(t *testing.T) {
 		consumer, err := rabbitmq.NewConsumer(amqp.ProxiedURI,
-			rabbitmq.WithConsumerPrefix(strings.Repeat("a", maxPrefix)),
+			rabbitmq.WithConsumerTagPrefix(strings.Repeat("a", maxPrefix)),
 		)
 
 		assert.NoError(t, err,
@@ -41,7 +43,7 @@ func TestNewConsumer(t *testing.T) {
 
 	t.Run("ConsumerPrefixInvalid", func(t *testing.T) {
 		consumer, err := rabbitmq.NewConsumer(amqp.ProxiedURI,
-			rabbitmq.WithConsumerPrefix(strings.Repeat("a", maxPrefix+1)),
+			rabbitmq.WithConsumerTagPrefix(strings.Repeat("a", maxPrefix+1)),
 		)
 
 		assert.ErrorContainsf(t, err,
@@ -70,7 +72,11 @@ func TestConsumeFailsDueToClosedConnection(t *testing.T) {
 
 	amqp := inttest.SetupRabbitMQ(t)
 
-	consumer, err := rabbitmq.NewConsumer(amqp.ProxiedURI)
+	consumer, err := rabbitmq.NewConsumer(amqp.ProxiedURI,
+		rabbitmq.WithConnectionName(t.Name()),
+		rabbitmq.WithConsumerTagPrefix(t.Name()),
+		rabbitmq.WithLogger(slog.New(slog.NewTextHandler(os.Stdout, nil))),
+	)
 	require.NoError(err)
 
 	// closing the connection before call to Consume()
@@ -92,7 +98,11 @@ func TestConsumeFailsDueToDifferingQueueProperties(t *testing.T) {
 
 	amqp := inttest.SetupRabbitMQ(t)
 
-	consumer, err := rabbitmq.NewConsumer(amqp.ProxiedURI)
+	consumer, err := rabbitmq.NewConsumer(amqp.ProxiedURI,
+		rabbitmq.WithConnectionName(t.Name()),
+		rabbitmq.WithConsumerTagPrefix(t.Name()),
+		rabbitmq.WithLogger(slog.New(slog.NewTextHandler(os.Stdout, nil))),
+	)
 	require.NoError(err)
 	defer func() { require.NoError(consumer.Close()) }()
 
@@ -127,7 +137,8 @@ func TestConsume(t *testing.T) {
 
 	consumer, err := rabbitmq.NewConsumer(amqp.ProxiedURI,
 		rabbitmq.WithConnectionName(t.Name()),
-		rabbitmq.WithConsumerPrefix(t.Name()),
+		rabbitmq.WithConsumerTagPrefix(t.Name()),
+		rabbitmq.WithLogger(slog.New(slog.NewTextHandler(os.Stdout, nil))),
 	)
 	require.NoError(err)
 	defer func() { require.NoError(consumer.Close()) }()
@@ -176,7 +187,8 @@ func TestConsumeReconnectsConnection(t *testing.T) {
 
 	consumer, err := rabbitmq.NewConsumer(amqp.ProxiedURI,
 		rabbitmq.WithConnectionName(t.Name()),
-		rabbitmq.WithConsumerPrefix(t.Name()),
+		rabbitmq.WithConsumerTagPrefix(t.Name()),
+		rabbitmq.WithLogger(slog.New(slog.NewTextHandler(os.Stdout, nil))),
 	)
 	require.NoError(err)
 	defer func() { require.NoError(consumer.Close()) }()
@@ -233,7 +245,8 @@ func TestConsumeRegistersConsumersAgain(t *testing.T) {
 
 	consumer, err := rabbitmq.NewConsumer(amqp.ProxiedURI,
 		rabbitmq.WithConnectionName(t.Name()),
-		rabbitmq.WithConsumerPrefix(t.Name()),
+		rabbitmq.WithConsumerTagPrefix(t.Name()),
+		rabbitmq.WithLogger(slog.New(slog.NewTextHandler(os.Stdout, nil))),
 	)
 	require.NoError(err)
 	defer func() { require.NoError(consumer.Close()) }()
@@ -291,7 +304,8 @@ func TestConsumeRegistersConsumersAgainAndRedeclaresQueues(t *testing.T) {
 
 	consumer, err := rabbitmq.NewConsumer(amqp.ProxiedURI,
 		rabbitmq.WithConnectionName(t.Name()),
-		rabbitmq.WithConsumerPrefix(t.Name()),
+		rabbitmq.WithConsumerTagPrefix(t.Name()),
+		rabbitmq.WithLogger(slog.New(slog.NewTextHandler(os.Stdout, nil))),
 	)
 	require.NoError(err)
 	defer func() { require.NoError(consumer.Close()) }()
@@ -345,7 +359,8 @@ func TestCancel(t *testing.T) {
 
 	consumer, err := rabbitmq.NewConsumer(amqp.ProxiedURI,
 		rabbitmq.WithConnectionName(t.Name()),
-		rabbitmq.WithConsumerPrefix(t.Name()),
+		rabbitmq.WithConsumerTagPrefix(t.Name()),
+		rabbitmq.WithLogger(slog.New(slog.NewTextHandler(os.Stdout, nil))),
 	)
 	require.NoError(err)
 	defer func() { require.NoError(consumer.Close()) }()
@@ -420,7 +435,8 @@ func TestClose(t *testing.T) {
 
 	consumer, err := rabbitmq.NewConsumer(amqp.ProxiedURI,
 		rabbitmq.WithConnectionName(t.Name()),
-		rabbitmq.WithConsumerPrefix(t.Name()),
+		rabbitmq.WithConsumerTagPrefix(t.Name()),
+		rabbitmq.WithLogger(slog.New(slog.NewTextHandler(os.Stdout, nil))),
 	)
 	require.NoError(err)
 

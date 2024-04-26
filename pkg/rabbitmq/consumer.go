@@ -2,8 +2,7 @@ package rabbitmq
 
 import (
 	"fmt"
-	"log"
-	"os"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -17,58 +16,68 @@ const (
 	maxConsumerTagPrefix     = 219 // 256 (max AMQP-0-9-1 consumer tag) - 36 (UUID) - 1 ("-" prefix separator)
 )
 
-// An Options customizes the consumer.
-type Options struct {
+// consumerOptions customizes the consumer.
+type consumerOptions struct {
 	// ConnectionName sets the `connection_name` property on the RabbitMQ connection. This can aid
 	// in observing/debugging connections (RabbitMQ management/CLI).
 	ConnectionName string
 
-	// ConsumerPrefix sets the prefix to the auto-generated consumer tag. This
-	// can aid in observing/debugging consumers on a channel (RabbitMQ management).
-	ConsumerPrefix string
+	// ConsumerTagPrefix sets the prefix to the auto-generated consumer tag. This can aid in
+	// observing/debugging consumers on a channel (RabbitMQ management).
+	ConsumerTagPrefix string
 
-	// ReconnectWait sets the duration to wait after a failed attempt to connect to
-	// RabbitMQ.
+	// Logger sets the logger to be used by the consumer. The consumer will log using slog.Default() by
+	// default.
+	Logger *slog.Logger
+
+	// ReconnectWait sets the duration to wait after a failed attempt to connect to RabbitMQ.
 	ReconnectWait time.Duration
 
-	// ReopenChannelWait sets the duration to wait after a failed attempt to open a
-	// channel on a RabbitMQ connection.
+	// ReopenChannelWait sets the duration to wait after a failed attempt to open a channel on a
+	// RabbitMQ connection.
 	ReopenChannelWait time.Duration
 }
 
 // An Option configures consumer options.
-type Option func(*Options)
+type Option func(*consumerOptions)
 
 // WithConnectionName sets the `connection_name` property on the RabbitMQ connection. This can aid
 // in observing/debugging connections (RabbitMQ management/CLI).
 func WithConnectionName(name string) Option {
-	return func(o *Options) {
+	return func(o *consumerOptions) {
 		o.ConnectionName = name
 	}
 }
 
-// WithConsumerPrefix sets the prefix to the auto-generated consumer tag. The
-// consumer tag is returned by Consume(). This can aid in observing/debugging
-// consumers on a channel (RabbitMQ management/CLI).
-func WithConsumerPrefix(prefix string) Option {
-	return func(o *Options) {
+// WithConsumerTagPrefix sets the prefix to the auto-generated consumer tag. The consumer tag is
+// returned by Consume(). This can aid in observing/debugging consumers on a channel (RabbitMQ
+// management/CLI).
+func WithConsumerTagPrefix(prefix string) Option {
+	return func(o *consumerOptions) {
 		// "-" to separate it from the UUID
-		o.ConsumerPrefix = prefix + "-"
+		o.ConsumerTagPrefix = prefix + "-"
 	}
 }
 
-// WithReconnectWait sets the duration to wait after a failed attempt to connect to
-// RabbitMQ.
+// WithLogger sets the logger to be used by the consumer. The consumer will log using slog.Default()
+// by default.
+func WithLogger(logger *slog.Logger) Option {
+	return func(o *consumerOptions) {
+		o.Logger = logger
+	}
+}
+
+// WithReconnectWait sets the duration to wait after a failed attempt to connect to RabbitMQ.
 func WithReconnectWait(wait time.Duration) Option {
-	return func(o *Options) {
+	return func(o *consumerOptions) {
 		o.ReconnectWait = wait
 	}
 }
 
-// WithReopenChannelWait sets the duration to wait after a failed attempt to open
-// a channel on a RabbitMQ connection.
+// WithReopenChannelWait sets the duration to wait after a failed attempt to open a channel on a
+// RabbitMQ connection.
 func WithReopenChannelWait(wait time.Duration) Option {
-	return func(o *Options) {
+	return func(o *consumerOptions) {
 		o.ReopenChannelWait = wait
 	}
 }
@@ -102,8 +111,11 @@ const (
 type Consumer struct {
 	mu sync.RWMutex
 
-	opts   *Options
-	logger *log.Logger
+	connectionName    string
+	consumerTagPrefix string
+	logger            *slog.Logger
+	reconnectWait     time.Duration
+	reopenChannelWait time.Duration
 
 	conn            *amqp.Connection
 	channel         *amqp.Channel
@@ -112,18 +124,18 @@ type Consumer struct {
 	notifyConnClose chan *amqp.Error
 	notifyChanClose chan *amqp.Error
 
-	consumers map[string]func(c *Consumer) error // consumers tracks the registered receiver functions per consumer identity
+	consumers map[string]func(c *Consumer) error // consumers tracks the registered receiver functions per consumer tag
 }
 
-// NewConsumer creates a Consumer that synchronously connects/opens a
-// channel to RabbitMQ at the given URI. If the consumer was able to connect/open a
-// channel it will automatically re-connect and re-open connection and channel
-// if they fail. A consumer holds on to one connection and one channel.
-// A consumer can be used to consume multiple times and from multiple goroutines.
+// NewConsumer creates a Consumer that synchronously connects/opens a channel to RabbitMQ at the
+// given URI. If the consumer was able to connect/open a channel it will automatically re-connect
+// and re-open connection and channel if they fail. A consumer holds on to one connection and one
+// channel. A consumer can be used to consume multiple times and from multiple goroutines.
 func NewConsumer(URI string, options ...Option) (*Consumer, error) {
-	opts := &Options{
+	opts := &consumerOptions{
 		ReconnectWait:     DefaultReconnectWait,
 		ReopenChannelWait: DefaultReopenChannelWait,
+		Logger:            slog.Default(),
 	}
 	for _, o := range options {
 		o(opts)
@@ -133,12 +145,19 @@ func NewConsumer(URI string, options ...Option) (*Consumer, error) {
 		return nil, err
 	}
 
+	logger := opts.Logger
+	if opts.ConnectionName != "" {
+		logger = opts.Logger.With(slog.String("connectionName", opts.ConnectionName))
+	}
 	c := Consumer{
-		opts:      opts,
-		logger:    log.New(os.Stdout, "", log.LstdFlags),
-		done:      make(chan struct{}),
-		status:    disconnected,
-		consumers: make(map[string]func(*Consumer) error),
+		connectionName:    opts.ConnectionName,
+		consumerTagPrefix: opts.ConsumerTagPrefix,
+		logger:            logger,
+		reconnectWait:     opts.ReconnectWait,
+		reopenChannelWait: opts.ReopenChannelWait,
+		done:              make(chan struct{}),
+		status:            disconnected,
+		consumers:         make(map[string]func(*Consumer) error),
 	}
 
 	err = c.createConnection(URI)
@@ -155,15 +174,15 @@ func NewConsumer(URI string, options ...Option) (*Consumer, error) {
 	return &c, nil
 }
 
-func validateOptions(opts *Options) error {
-	if len(opts.ConsumerPrefix)-1 > maxConsumerTagPrefix {
+func validateOptions(opts *consumerOptions) error {
+	if len(opts.ConsumerTagPrefix)-1 > maxConsumerTagPrefix {
 		return fmt.Errorf("consumer prefix exceeded max length of %d", maxConsumerTagPrefix)
 	}
 
 	return nil
 }
 
-// createConnection will create a new AMQP connection
+// createConnection will create a new AMQP connection.
 func (c *Consumer) createConnection(addr string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -175,8 +194,8 @@ func (c *Consumer) createConnection(addr string) error {
 	}
 
 	config := amqp.Config{Properties: amqp.NewConnectionProperties()}
-	if c.opts.ConnectionName != "" {
-		config.Properties.SetClientConnectionName(c.opts.ConnectionName)
+	if c.connectionName != "" {
+		config.Properties.SetClientConnectionName(c.connectionName)
 	}
 	conn, err := amqp.DialConfig(addr, config)
 	if err != nil {
@@ -220,33 +239,33 @@ func (c *Consumer) maintainConnection(addr string) {
 	for {
 		select {
 		case <-c.done:
-			c.logger.Println("Done closed. Stop trying to maintain the connection.")
+			c.logger.Info("Done closed. Stop trying to maintain the connection.")
 			return
 		case <-c.notifyConnClose:
-			c.logger.Println("Connection closed. Opening a new connection...")
+			c.logger.Info("Connection closed. Opening a new connection...")
 
 			for {
 				err := c.createConnection(addr)
 				if err != nil {
-					c.logger.Println("Failed to connect. Retrying...")
-					t := time.NewTimer(c.opts.ReconnectWait)
+					c.logger.Error("Failed to connect. Retrying...", "error", err)
+					t := time.NewTimer(c.reconnectWait)
 					select {
 					case <-c.done:
 						if !t.Stop() {
 							<-t.C
 						}
-						c.logger.Println("Done closed. Stop trying to open a connection.")
+						c.logger.Info("Done closed. Stop trying to open a connection.")
 						return
 					case <-t.C:
 					}
 					continue
 				}
-				c.logger.Println("Consumer connection re-established. Opening a new channel...")
+				c.logger.Info("Consumer connection re-established. Opening a new channel...")
 				c.openChannel()
 				break
 			}
 		case <-c.notifyChanClose:
-			c.logger.Println("Channel closed. Opening a new channel...")
+			c.logger.Info("Channel closed. Opening a new channel...")
 			c.openChannel()
 		}
 	}
@@ -257,22 +276,22 @@ func (c *Consumer) openChannel() {
 	for {
 		err := c.createChannel()
 		if err == nil {
-			c.logger.Println("Consumer channel re-established. Registering consumers...")
+			c.logger.Info("Consumer channel re-established. Registering consumers...")
 			c.registerConsumers()
 			return
 		}
 
-		c.logger.Println("Failed to open channel. Retrying...")
-		t := time.NewTimer(c.opts.ReopenChannelWait)
+		c.logger.Error("Failed to open channel. Retrying...", "error", err)
+		t := time.NewTimer(c.reopenChannelWait)
 		select {
 		case <-c.done:
 			if !t.Stop() {
 				<-t.C
 			}
-			c.logger.Println("Done closed. Stop trying to open a channel.")
+			c.logger.Info("Done closed. Stop trying to open a channel.")
 			return
 		case <-c.notifyConnClose:
-			c.logger.Println("Connection closed. Stop trying to open a channel.")
+			c.logger.Info("Connection closed. Stop trying to open a channel.")
 			return
 		case <-t.C:
 		}
@@ -283,33 +302,33 @@ func (c *Consumer) registerConsumers() {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	for consumerID, registerConsumer := range c.consumers {
+	for consumerTag, registerConsumer := range c.consumers {
 		// We need to exit and release our lock if the connection or channel got closed otherwise we
 		// won't be able to acquire a write lock to set the new connection and channel
 		select {
 		case <-c.done:
-			c.logger.Println("Done closed. Stop trying to register consumers.")
+			c.logger.Info("Done closed. Stop trying to register consumers.")
 			return
 		case <-c.notifyConnClose:
-			c.logger.Println("Connection closed. Stop trying to register consumers.")
+			c.logger.Info("Connection closed. Stop trying to register consumers.")
 			return
 		case <-c.notifyChanClose:
-			c.logger.Println("Channel closed. Stop trying to register consumers.")
+			c.logger.Info("Channel closed. Stop trying to register consumers.")
 			return
 		default:
-			c.logger.Printf("Registering consumer %q", consumerID)
+			c.logger.Info("Registering consumer.", "consumerTag", consumerTag)
 			// We assume for now that err!=nil means either the connection or channel is closed. In
 			// these cases retrying to consume would never succeed as we are holding the lock
 			// preventing the connection/channel to be re-established. So we log and move on to
 			// check the notification channels and exit to our connection maintenance logic.
 			err := registerConsumer(c)
 			if err != nil {
-				c.logger.Printf("Stop registering consumers as we failed to register consumer %q due to: %v\n", consumerID, err)
+				c.logger.Error("Stop registering consumers as we failed to register a consumer.", "consumerTag", consumerTag, "error", err)
 				return
 			}
 		}
 	}
-	c.logger.Println("Done registering consumers")
+	c.logger.Info("Done registering consumers")
 }
 
 type tempError struct {
@@ -342,24 +361,24 @@ func (c *Consumer) Consume(queue string, receive func(d amqp.Delivery)) (string,
 	}
 	c.mu.RUnlock()
 
-	consumerID := c.opts.ConsumerPrefix + uuid.NewString()
+	consumerTag := c.consumerTagPrefix + uuid.NewString()
 	c.mu.Lock()
-	registerConsumer := registerConsumerFunc(queue, consumerID, receive)
+	registerConsumer := registerConsumerFunc(queue, consumerTag, receive)
 	err := registerConsumer(c)
 	if err != nil {
 		c.mu.Unlock()
 		return "", err
 	}
-	c.consumers[consumerID] = registerConsumer
+	c.consumers[consumerTag] = registerConsumer
 	c.mu.Unlock()
 
-	return consumerID, nil
+	return consumerTag, nil
 }
 
 // registerConsumerFunc returns a function for registering a consumers' receiver to the given queue.
 // The returned function is not safe for concurrent use. You are responsible for
 // synchronization/acquiring a necessary lock.
-func registerConsumerFunc(queue, consumerID string, receive func(delivery amqp.Delivery)) func(c *Consumer) error {
+func registerConsumerFunc(queue, consumerTag string, receive func(delivery amqp.Delivery)) func(c *Consumer) error {
 	return func(c *Consumer) error {
 		_, err := c.channel.QueueDeclare(
 			queue,
@@ -374,7 +393,7 @@ func registerConsumerFunc(queue, consumerID string, receive func(delivery amqp.D
 		}
 		deliveries, err := c.channel.Consume(
 			queue,
-			consumerID,
+			consumerTag,
 			false, // Auto-Ack
 			false, // Exclusive
 			false, // No-local
@@ -394,10 +413,9 @@ func registerConsumerFunc(queue, consumerID string, receive func(delivery amqp.D
 	}
 }
 
-// Cancel consuming messages for given consumer. The consumer identifier is
-// returned by Consume().
-// It is safe to call this method multiple times and in multiple goroutines.
-func (c *Consumer) Cancel(consumer string) error {
+// Cancel consuming messages for given consumer. The consumer tag is returned by Consume(). It is
+// safe to call this method multiple times and in multiple goroutines.
+func (c *Consumer) Cancel(consumerTag string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -409,17 +427,16 @@ func (c *Consumer) Cancel(consumer string) error {
 		return fmt.Errorf("failed to cancel: connection is in %q state", status)
 	}
 
-	err := c.channel.Cancel(consumer, false)
+	err := c.channel.Cancel(consumerTag, false)
 	// We assume for now that Cancel() = err!=nil means the consumer stopped consuming messages. For
 	// example Cancel() on a closed channel or connection will fail. This is why we would want to
 	// remove the consumer and not re-register it once connection/channel are back up.
-	delete(c.consumers, consumer)
+	delete(c.consumers, consumerTag)
 	return err
 }
 
-// Close connection and channel. A new consumer needs to be
-// created in order to consume again after closing it.
-// It is safe to call this method multiple times and in multiple goroutines.
+// Close connection and channel. A new consumer needs to be created in order to consume again after
+// closing it. It is safe to call this method multiple times and in multiple goroutines.
 func (c *Consumer) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
