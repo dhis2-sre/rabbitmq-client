@@ -3,7 +3,9 @@ package rabbitmq
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"fmt"
+	"log/slog"
+	"os"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -11,17 +13,18 @@ import (
 
 type Channel string
 
-func ProvideProducer(url string) Producer {
-	return Producer{url}
+func ProvideProducer(logger *slog.Logger, url string) Producer {
+	return Producer{logger, url}
 }
 
 type Producer struct {
-	url string
+	logger *slog.Logger
+	url    string
 }
 
 func (p *Producer) Produce(channel Channel, payload any) {
-	log.Printf("Channel: %s", channel)
-	log.Printf("Payload: %+v", payload)
+	p.logger.Info("Channel: %s", channel)
+	p.logger.Info("Payload: %+v", payload)
 
 	conn, err := amqp.Dial(p.url)
 	failOnError(err, "Failed to connect to RabbitMQ")
@@ -70,11 +73,12 @@ func (p *Producer) Produce(channel Channel, payload any) {
 		publishing)
 	failOnError(err, "Failed to publish a message")
 
-	log.Printf("[%s] Sent %+v", channel, payload)
+	p.logger.Info("[%s] Sent %+v", channel, payload)
 }
 
 func failOnError(err error, msg string) {
 	if err != nil {
-		log.Fatalf("%s: %s", msg, err)
+		_, _ = fmt.Fprintf(os.Stderr, "%s: %s", msg, err) // nolint:errcheck
+		os.Exit(1)
 	}
 }
