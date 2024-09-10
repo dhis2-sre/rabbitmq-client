@@ -23,9 +23,6 @@ type Producer struct {
 }
 
 func (p *Producer) Produce(channel Channel, payload any) {
-	p.logger.Info("Channel: %s", channel)
-	p.logger.Info("Payload: %+v", payload)
-
 	conn, err := amqp.Dial(p.url)
 	failOnError(err, "Failed to connect to RabbitMQ")
 	defer func(conn *amqp.Connection) {
@@ -73,7 +70,7 @@ func (p *Producer) Produce(channel Channel, payload any) {
 		publishing)
 	failOnError(err, "Failed to publish a message")
 
-	p.logger.Info("[%s] Sent %+v", channel, payload)
+	p.logger.Info("message produced", "channel", channel, "payload", payload)
 }
 
 func failOnError(err error, msg string) {

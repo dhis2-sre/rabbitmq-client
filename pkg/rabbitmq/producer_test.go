@@ -2,6 +2,7 @@ package rabbitmq
 
 import (
 	"fmt"
+	"log/slog"
 	"testing"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -24,7 +25,7 @@ func TestProducer(t *testing.T) {
 	uri := fmt.Sprintf("amqp://%s:%s@%s", "guest", "guest", container.DefaultAddress())
 
 	// When
-	producer := ProvideProducer(uri)
+	producer := ProvideProducer(slog.Default(), uri)
 	payload := struct{ ID uint }{uint(123)}
 	producer.Produce("ttl-destroy", payload)
 
