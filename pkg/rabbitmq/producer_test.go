@@ -27,7 +27,8 @@ func TestProducer(t *testing.T) {
 	// When
 	producer := ProvideProducer(slog.Default(), uri)
 	payload := struct{ ID uint }{uint(123)}
-	producer.Produce("ttl-destroy", payload)
+	err = producer.Produce("ttl-destroy", payload)
+	require.NoError(t, err)
 
 	// Then
 	conn, err := amqp.Dial(uri)
