@@ -21,7 +21,7 @@ type Producer struct {
 	url    string
 }
 
-func (p *Producer) Produce(channel Channel, payload any) error {
+func (p *Producer) Produce(channel Channel, correlationId string, payload any) error {
 	conn, err := amqp.Dial(p.url)
 	if err != nil {
 		return fmt.Errorf("dial amqp connection: %v", err)
@@ -67,8 +67,9 @@ func (p *Producer) Produce(channel Channel, payload any) error {
 	defer cancel()
 
 	publishing := amqp.Publishing{
-		ContentType: "application/json",
-		Body:        marshal,
+		ContentType:   "application/json",
+		Body:          marshal,
+		CorrelationId: correlationId,
 	}
 	err = ch.PublishWithContext(ctx,
 		"",

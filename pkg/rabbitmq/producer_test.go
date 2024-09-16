@@ -27,7 +27,7 @@ func TestProducer(t *testing.T) {
 	// When
 	producer := ProvideProducer(slog.Default(), uri)
 	payload := struct{ ID uint }{uint(123)}
-	err = producer.Produce("ttl-destroy", payload)
+	err = producer.Produce("ttl-destroy", "correlationId", payload)
 	require.NoError(t, err)
 
 	// Then
@@ -62,4 +62,5 @@ func TestProducer(t *testing.T) {
 
 	m := <-msgs
 	require.Equal(t, []byte(`{"ID":123}`), m.Body)
+	require.Equal(t, "correlationId", m.CorrelationId)
 }
