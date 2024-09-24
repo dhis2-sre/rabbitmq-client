@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/google/uuid"
 	"os"
 	"time"
+
+	"github.com/google/uuid"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
