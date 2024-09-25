@@ -30,7 +30,7 @@ func (p *Producer) Produce(channel Channel, correlationId string, payload any) e
 	defer func(conn *amqp.Connection) {
 		err := conn.Close()
 		if err != nil {
-			p.logger.Error("close connection", "error", err.Error())
+			p.logger.Error("Failed to close connection", "error", err.Error())
 		}
 	}(conn)
 
@@ -42,7 +42,7 @@ func (p *Producer) Produce(channel Channel, correlationId string, payload any) e
 	defer func(ch *amqp.Channel) {
 		err := ch.Close()
 		if err != nil {
-			p.logger.Error("close channel", "error", err.Error())
+			p.logger.Error("Failed to close channel", "error", err.Error())
 		}
 	}(ch)
 
