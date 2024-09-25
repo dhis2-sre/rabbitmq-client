@@ -2,6 +2,7 @@ package rabbitmq
 
 import (
 	"fmt"
+	"log/slog"
 	"testing"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -24,9 +25,10 @@ func TestProducer(t *testing.T) {
 	uri := fmt.Sprintf("amqp://%s:%s@%s", "guest", "guest", container.DefaultAddress())
 
 	// When
-	producer := ProvideProducer(uri)
+	producer := ProvideProducer(slog.Default(), uri)
 	payload := struct{ ID uint }{uint(123)}
-	producer.Produce("ttl-destroy", payload)
+	err = producer.Produce("ttl-destroy", "correlationId", payload)
+	require.NoError(t, err)
 
 	// Then
 	conn, err := amqp.Dial(uri)
@@ -60,4 +62,5 @@ func TestProducer(t *testing.T) {
 
 	m := <-msgs
 	require.Equal(t, []byte(`{"ID":123}`), m.Body)
+	require.Equal(t, "correlationId", m.CorrelationId)
 }

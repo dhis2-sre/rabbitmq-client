@@ -5,6 +5,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/google/uuid"
+
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -33,14 +35,16 @@ func run() error {
 	for {
 		time.Sleep(time.Second * 2)
 		t := time.Now().String()
+		correlationId := uuid.NewString()
 		err = ch.Publish("", queue, false, false, amqp.Publishing{
-			DeliveryMode: amqp.Persistent,
-			Body:         []byte(t),
+			DeliveryMode:  amqp.Persistent,
+			Body:          []byte(t),
+			CorrelationId: correlationId,
 		})
 		if err != nil {
 			fmt.Printf("Produce failed: %s\n", err)
 		} else {
-			fmt.Printf("produced: %q\n", t)
+			fmt.Printf("produced: %q (%s)\n", t, correlationId)
 		}
 	}
 }

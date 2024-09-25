@@ -3,7 +3,8 @@ package rabbitmq
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"fmt"
+	"log/slog"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -11,34 +12,37 @@ import (
 
 type Channel string
 
-func ProvideProducer(url string) Producer {
-	return Producer{url}
+func ProvideProducer(logger *slog.Logger, url string) Producer {
+	return Producer{logger, url}
 }
 
 type Producer struct {
-	url string
+	logger *slog.Logger
+	url    string
 }
 
-func (p *Producer) Produce(channel Channel, payload any) {
-	log.Printf("Channel: %s", channel)
-	log.Printf("Payload: %+v", payload)
-
+func (p *Producer) Produce(channel Channel, correlationId string, payload any) error {
 	conn, err := amqp.Dial(p.url)
-	failOnError(err, "Failed to connect to RabbitMQ")
+	if err != nil {
+		return fmt.Errorf("dial amqp connection: %v", err)
+	}
+
 	defer func(conn *amqp.Connection) {
 		err := conn.Close()
 		if err != nil {
-			failOnError(err, "Failed to close connection")
+			p.logger.Error("Failed to close connection", "error", err.Error())
 		}
 	}(conn)
 
 	ch, err := conn.Channel()
-	failOnError(err, "Failed to open a channel")
+	if err != nil {
+		return fmt.Errorf("create channel: %v", err)
+	}
 
 	defer func(ch *amqp.Channel) {
 		err := ch.Close()
 		if err != nil {
-			failOnError(err, "Failed to close channel")
+			p.logger.Error("Failed to close channel", "error", err.Error())
 		}
 	}(ch)
 
@@ -50,17 +54,22 @@ func (p *Producer) Produce(channel Channel, payload any) {
 		false,
 		nil,
 	)
-	failOnError(err, "Failed to declare a queue")
+	if err != nil {
+		return fmt.Errorf("declare queue: %v", err)
+	}
 
 	marshal, err := json.Marshal(payload)
-	failOnError(err, "Failed to json serialize payload")
+	if err != nil {
+		return fmt.Errorf("marshal payload: %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	publishing := amqp.Publishing{
-		ContentType: "application/json",
-		Body:        marshal,
+		ContentType:   "application/json",
+		Body:          marshal,
+		CorrelationId: correlationId,
 	}
 	err = ch.PublishWithContext(ctx,
 		"",
@@ -68,13 +77,11 @@ func (p *Producer) Produce(channel Channel, payload any) {
 		false,
 		false,
 		publishing)
-	failOnError(err, "Failed to publish a message")
-
-	log.Printf("[%s] Sent %+v", channel, payload)
-}
-
-func failOnError(err error, msg string) {
 	if err != nil {
-		log.Fatalf("%s: %s", msg, err)
+		return fmt.Errorf("publish message: %v", err)
 	}
+
+	p.logger.Debug("Message produced", "channel", channel, "correlationId", correlationId)
+
+	return nil
 }
