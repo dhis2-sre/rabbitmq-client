@@ -12,7 +12,7 @@ import (
 
 type Channel string
 
-func ProvideProducer(logger *slog.Logger, url string) Producer {
+func NewProducer(logger *slog.Logger, url string) Producer {
 	return Producer{logger, url}
 }
 

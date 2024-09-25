@@ -25,7 +25,7 @@ func TestProducer(t *testing.T) {
 	uri := fmt.Sprintf("amqp://%s:%s@%s", "guest", "guest", container.DefaultAddress())
 
 	// When
-	producer := ProvideProducer(slog.Default(), uri)
+	producer := NewProducer(slog.Default(), uri)
 	payload := struct{ ID uint }{uint(123)}
 	err = producer.Produce("ttl-destroy", "correlationId", payload)
 	require.NoError(t, err)
