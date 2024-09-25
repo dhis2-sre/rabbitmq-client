@@ -24,7 +24,7 @@ type Producer struct {
 func (p *Producer) Produce(channel Channel, correlationId string, payload any) error {
 	conn, err := amqp.Dial(p.url)
 	if err != nil {
-		return fmt.Errorf("dial amqp connection: %v", err)
+		return fmt.Errorf("failed to dial amqp connection: %v", err)
 	}
 
 	defer func(conn *amqp.Connection) {
@@ -36,7 +36,7 @@ func (p *Producer) Produce(channel Channel, correlationId string, payload any) e
 
 	ch, err := conn.Channel()
 	if err != nil {
-		return fmt.Errorf("create channel: %v", err)
+		return fmt.Errorf("failed to create channel: %v", err)
 	}
 
 	defer func(ch *amqp.Channel) {
@@ -55,12 +55,12 @@ func (p *Producer) Produce(channel Channel, correlationId string, payload any) e
 		nil,
 	)
 	if err != nil {
-		return fmt.Errorf("declare queue: %v", err)
+		return fmt.Errorf("failed to declare queue: %v", err)
 	}
 
 	marshal, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal payload: %v", err)
+		return fmt.Errorf("failed to marshal payload: %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -78,7 +78,7 @@ func (p *Producer) Produce(channel Channel, correlationId string, payload any) e
 		false,
 		publishing)
 	if err != nil {
-		return fmt.Errorf("publish message: %v", err)
+		return fmt.Errorf("failed to publish message: %v", err)
 	}
 
 	p.logger.Debug("Message produced", "channel", channel, "correlationId", correlationId)
