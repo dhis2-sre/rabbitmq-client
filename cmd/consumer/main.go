@@ -48,7 +48,7 @@ func run(ctx context.Context) error {
 	for i := 0; i < 3; i++ {
 		logger.Info("Trying to consume from queue.", "queue", queue, "address", addr)
 		consumerTag, err := consumer.Consume(queue, func(d amqp.Delivery) {
-			logger.Info("Received message.", "message", string(d.Body))
+			logger.Info("Received message.", "message", string(d.Body), "correlationId", d.CorrelationId)
 			_ = d.Ack(false)
 		})
 		if err == nil {
