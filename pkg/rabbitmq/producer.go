@@ -81,7 +81,7 @@ func (p *Producer) Produce(channel Channel, correlationId string, payload any) e
 		return fmt.Errorf("publish message: %v", err)
 	}
 
-	p.logger.Debug("message produced", "channel", channel)
+	p.logger.Debug("message produced", "channel", channel, "correlationId", correlationId)
 
 	return nil
 }
